@@ -17,6 +17,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_file, render_template
 
 from db import get_conn, init_db
+from claude_client import generate_rough_cut, suggest_content
 
 MEDIA_DIR = Path(os.environ.get("MEDIA_DIR", "")).expanduser()
 CLIPS_OUT = Path(__file__).resolve().parent.parent / "clips_out"
@@ -139,6 +140,58 @@ def get_project(project_id):
     ).fetchall()
     conn.close()
     return jsonify({**dict(project), "items": [dict(i) for i in items]})
+
+
+@app.post("/api/projects/<int:project_id>/generate")
+def generate_project(project_id):
+    prompt = request.json.get("prompt", "").strip()
+    if not prompt:
+        return {"error": "prompt is required"}, 400
+
+    conn = get_conn()
+    project = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    if not project:
+        conn.close()
+        return {"error": "not found"}, 404
+    clips = [dict(row) for row in conn.execute("SELECT * FROM clips ORDER BY file_stem").fetchall()]
+
+    try:
+        plan = generate_rough_cut(prompt, clips)
+    except Exception as e:
+        conn.close()
+        return {"error": str(e)}, 502
+
+    max_pos = conn.execute(
+        "SELECT COALESCE(MAX(position), -1) AS m FROM timeline_items WHERE project_id = ?",
+        (project_id,),
+    ).fetchone()["m"]
+    for i, selection in enumerate(plan.selections):
+        conn.execute(
+            """
+            INSERT INTO timeline_items (project_id, clip_id, position, in_point, out_point)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (project_id, selection.clip_id, max_pos + 1 + i, selection.in_point, selection.out_point),
+        )
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "concept": plan.concept,
+        "selections": [s.model_dump() for s in plan.selections],
+    })
+
+
+@app.post("/api/suggest-content")
+def suggest_content_route():
+    conn = get_conn()
+    clips = [dict(row) for row in conn.execute("SELECT * FROM clips ORDER BY file_stem").fetchall()]
+    conn.close()
+    try:
+        suggestions = suggest_content(clips)
+    except Exception as e:
+        return {"error": str(e)}, 502
+    return jsonify({"ideas": [i.model_dump() for i in suggestions.ideas]})
 
 
 @app.post("/api/projects/<int:project_id>/items")

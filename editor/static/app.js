@@ -167,5 +167,42 @@ document.getElementById("transcribe-btn").addEventListener("click", async () => 
   }
 });
 
+document.getElementById("generate-btn").addEventListener("click", async () => {
+  const resultEl = document.getElementById("generate-result");
+  const prompt = document.getElementById("generate-prompt").value.trim();
+  if (!prompt || !currentProjectId) return;
+  resultEl.textContent = "Generating rough cut... (this can take a bit)";
+  try {
+    const result = await api(`/api/projects/${currentProjectId}/generate`, {
+      method: "POST",
+      body: JSON.stringify({ prompt }),
+    });
+    resultEl.textContent = `${result.concept} (${result.selections.length} clips added)`;
+    await loadTimeline();
+  } catch (err) {
+    resultEl.textContent = `Error: ${err.message}`;
+  }
+});
+
+document.getElementById("suggest-content-btn").addEventListener("click", async () => {
+  const container = document.getElementById("content-ideas");
+  container.textContent = "Thinking of ideas...";
+  try {
+    const result = await api("/api/suggest-content", { method: "POST" });
+    container.innerHTML = "";
+    result.ideas.forEach((idea) => {
+      const el = document.createElement("div");
+      el.className = "idea-item";
+      el.innerHTML = `
+        <div class="idea-title">${idea.idea}</div>
+        <div class="idea-rationale">${idea.rationale}</div>
+      `;
+      container.appendChild(el);
+    });
+  } catch (err) {
+    container.textContent = `Error: ${err.message}`;
+  }
+});
+
 loadClips();
 loadProjects();

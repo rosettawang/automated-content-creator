@@ -2,3 +2,5 @@ flask
 openpyxl
 pywebview
 openai-whisper
+anthropic
+pydantic

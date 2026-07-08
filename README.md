@@ -46,6 +46,14 @@ they're pulled down.
 no internet needed) over its audio; the result is saved to the clip's `transcript` field and
 shown under the preview. Takes a few seconds per clip on a laptop CPU; slower for longer clips.
 
+**AI-assisted rough cuts and content ideas** — requires an Anthropic API key:
+`export ANTHROPIC_API_KEY=...` before launching. Type what you want in the "Describe the
+video you want" box in the Timeline panel and hit "Generate rough cut" — Claude reads the
+whole clip catalog (descriptions, categories, transcripts) and picks/orders clips with
+in/out points onto the current project's timeline, which you can then hand-adjust as usual.
+"Suggest content ideas" (in the library panel) asks Claude what's missing from the existing
+footage and worth filming next, based on the same catalog.
+
 Re-run `migrate_xlsx.py` any time the xlsx changes — it's a safe upsert by filename and
 won't touch existing projects/timelines/transcripts. `editor/data/editor.db` holds your actual
 project/timeline work, so unlike the rest of this repo's temp/local media, it's committed to git.

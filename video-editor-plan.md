@@ -34,12 +34,14 @@ Three layers, each doing what it's actually good at:
 
 ---
 
-## How "prompt → rough cut" would work
+## How "prompt → rough cut" works (implemented)
 
-1. You describe the video ("30s reel about the butterfly lifecycle").
-2. App searches `clips` (keyword/tag filter now, semantic search later) for matches, ranked by quality flag and relevance.
-3. App assembles a first-pass `timeline_items` sequence using each clip's already-logged best-moment in/out points.
-4. Draft lands in the editor for review.
+1. You describe the video ("30s reel about the butterfly lifecycle") in the editor's prompt box.
+2. `editor/claude_client.py` sends the *entire* `clips` catalog (file stem, category, description, duration, transcript) plus the prompt to Claude (`claude-opus-4-8`, via `messages.parse` with a Pydantic schema for structured output), asking it to pick clips, order them, and give in/out points.
+3. The app writes the returned selections straight into `timeline_items` for the project.
+4. Draft lands in the editor for review/trim/reorder like any manually-built timeline.
+
+This replaced the originally-planned keyword/tag search + rank step — with only ~80 clips, the whole catalog fits in one prompt, so Claude does the matching directly rather than a separate retrieval step narrowing candidates first. That keyword/tag or embedding-based narrowing would become worth adding if the catalog grows large enough that it no longer fits in context.
 
 ---
 
@@ -56,11 +58,11 @@ Three layers, each doing what it's actually good at:
 
 ## Phased build order
 
-1. Migrate xlsx → SQLite (one-time script; xlsx becomes a generated view, not the source)
-2. Build the prompt → draft-timeline generator (keyword/tag search first — no ML required for v1)
-3. Build the minimal editor UI (timeline list + trim/reorder + preview)
-4. Wire export to the existing ffmpeg/FCPXML pipeline
-5. Later: add semantic search over descriptions/transcripts for better prompt matching
+1. ✅ Migrate xlsx → SQLite (one-time script; xlsx becomes a generated view, not the source)
+2. ✅ Build the prompt → draft-timeline generator (Claude reasons over the full catalog directly — see below; no separate keyword/tag search step was needed at this catalog size)
+3. ✅ Build the minimal editor UI (timeline list + trim/reorder + preview)
+4. ✅ Wire export to the existing ffmpeg/FCPXML pipeline
+5. Later: add semantic search / retrieval narrowing if the catalog grows too large to fit in one prompt
 
 ---
 
@@ -69,6 +71,7 @@ Three layers, each doing what it's actually good at:
 - **App shape** — custom, rudimentary editor (not Descript). Built as a small local Flask app: `editor/app.py` + a single vanilla-JS page. Phases 1–3 above are implemented: xlsx → SQLite migration (`editor/migrate_xlsx.py`), a clip library with search, a timeline (add/trim/reorder/remove), and export via ffmpeg trim + concat to `clips_out/`. Semantic search (phase 5) is not built yet — search is still keyword/tag matching over the SQLite `clips` table.
 - **Presentation: native window, not a browser tab.** `editor/desktop.py` runs the same Flask app in a background thread and opens it in a `pywebview` window. This is a presentation-layer change only — the Flask backend, SQLite data, and ffmpeg export are unchanged and still reachable via a plain browser tab (`python3 app.py`) if that's ever more convenient (e.g. devtools debugging).
 - **Deeper analysis (motion, transcription) doesn't depend on UI shape.** Whether the UI is a webpage or a native window, backend analysis (Whisper, OpenCV, etc.) runs identically as Python code in the Flask process. First one built: **Whisper transcription** — `POST /api/clips/<id>/transcribe` runs the local `base` Whisper model over a clip's audio (no internet required) and stores the result in a new `clips.transcript` column. Exposed in the UI as a "Transcribe" button next to the preview. Motion detection would follow the same pattern (a new endpoint + a new `clips` column) whenever it's needed.
+- **Claude API integration** — `editor/claude_client.py` (Anthropic Python SDK, `claude-opus-4-8`, structured output via `messages.parse`). Two features: `POST /api/projects/<id>/generate` (prompt → rough cut, described above) and `POST /api/suggest-content` (sends the full catalog and asks what's under-represented and worth filming next — surfaced as a "Suggest content ideas" button in the library panel). Requires `ANTHROPIC_API_KEY` set in the environment; without it both endpoints return a clear error rather than crashing.
 
 ## Open decisions
 

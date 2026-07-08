@@ -11,6 +11,9 @@
       <h2>Clip Library</h2>
       <input id="search" placeholder="search description / category / filename">
       <div id="clip-list"></div>
+      <h2>Content Ideas</h2>
+      <button id="suggest-content-btn">Suggest content ideas</button>
+      <div id="content-ideas"></div>
     </div>
 
     <div class="panel" id="timeline-panel">
@@ -19,6 +22,9 @@
         <select id="project-select"></select>
         <button id="new-project">New project</button>
       </div>
+      <textarea id="generate-prompt" placeholder="Describe the video you want, e.g. '30s reel about the butterfly lifecycle'" rows="3"></textarea>
+      <button id="generate-btn">Generate rough cut</button>
+      <div id="generate-result"></div>
       <div id="timeline-list"></div>
       <button id="export-btn">Export</button>
       <div id="export-result"></div>
