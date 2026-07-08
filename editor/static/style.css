@@ -1,0 +1,106 @@
+body {
+  font-family: -apple-system, sans-serif;
+  margin: 0;
+  background: #1e1e1e;
+  color: #eee;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1rem;
+  padding: 1rem;
+  height: calc(100vh - 2rem);
+}
+
+.panel {
+  background: #2a2a2a;
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+h2 {
+  margin-top: 0;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #999;
+}
+
+input, select, button {
+  font-size: 0.9rem;
+  padding: 0.4rem;
+  margin-bottom: 0.5rem;
+  border-radius: 4px;
+  border: 1px solid #444;
+  background: #1e1e1e;
+  color: #eee;
+}
+
+#search {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.clip-item, .timeline-item {
+  padding: 0.5rem;
+  margin-bottom: 0.4rem;
+  border-radius: 6px;
+  background: #333;
+  cursor: pointer;
+}
+
+.clip-item:hover, .timeline-item:hover {
+  background: #3d3d3d;
+}
+
+.clip-item.unavailable {
+  opacity: 0.4;
+}
+
+.clip-item .stem, .timeline-item .stem {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.clip-item .desc, .timeline-item .desc {
+  font-size: 0.8rem;
+  color: #bbb;
+  margin-top: 0.2rem;
+}
+
+.timeline-item .controls {
+  margin-top: 0.4rem;
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+}
+
+.timeline-item .controls input {
+  width: 4rem;
+  margin: 0;
+}
+
+#preview {
+  width: 100%;
+  background: black;
+}
+
+#trim-controls {
+  margin-top: 0.5rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+#export-btn {
+  width: 100%;
+  background: #4a7c4a;
+}
+
+#export-result {
+  font-size: 0.8rem;
+  margin-top: 0.5rem;
+  word-break: break-all;
+}

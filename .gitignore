@@ -9,3 +9,7 @@ clips_out/*.mp4
 clips_out/*.mov
 clips_out/*.mkv
 # Keep: clips_out/*.fcpxml, clips_out/*.txt (edit decisions & notes)
+# Editor app: clips.db holds real project/timeline work (not just regenerable
+# clip metadata), so it's committed rather than ignored — only ignore caches.
+__pycache__/
+*.pyc
