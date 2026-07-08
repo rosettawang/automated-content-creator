@@ -38,14 +38,27 @@ input, select, button {
   color: #eee;
 }
 
-#search, #generate-prompt {
+#search, #generate-prompt, #drive-links {
   width: 100%;
   box-sizing: border-box;
 }
 
-#generate-prompt {
+#generate-prompt, #drive-links {
   font-family: inherit;
   resize: vertical;
+}
+
+#drive-import-result {
+  font-size: 0.8rem;
+  margin-bottom: 0.5rem;
+}
+
+#drive-import-result .drive-result-line {
+  margin-bottom: 0.2rem;
+}
+
+#drive-import-result .drive-error {
+  color: #e08080;
 }
 
 .idea-item {

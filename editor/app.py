@@ -18,15 +18,17 @@ from flask import Flask, jsonify, request, send_file, render_template
 
 from db import get_conn, init_db
 from claude_client import generate_rough_cut, suggest_content
+from drive_import import download_drive_file, probe_duration
 
-MEDIA_DIR = Path(os.environ.get("MEDIA_DIR", "")).expanduser()
+MEDIA_DIR_RAW = os.environ.get("MEDIA_DIR", "").strip()
+MEDIA_DIR = Path(MEDIA_DIR_RAW).expanduser() if MEDIA_DIR_RAW else None
 CLIPS_OUT = Path(__file__).resolve().parent.parent / "clips_out"
 
 app = Flask(__name__)
 
 
 def find_media_file(file_stem: str) -> Path | None:
-    if not MEDIA_DIR.is_dir():
+    if MEDIA_DIR is None or not MEDIA_DIR.is_dir():
         return None
     matches = list(MEDIA_DIR.glob(f"{file_stem}.*"))
     return matches[0] if matches else None
@@ -54,6 +56,49 @@ def list_clips():
     for c in clips:
         c["available_locally"] = find_media_file(c["file_stem"]) is not None
     return jsonify(clips)
+
+
+@app.post("/api/drive-import")
+def drive_import():
+    if MEDIA_DIR is None:
+        return {"error": "MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder"}, 400
+
+    urls = [u.strip() for u in request.json.get("urls", []) if u.strip()]
+    if not urls:
+        return {"error": "no links provided"}, 400
+
+    conn = get_conn()
+    results = []
+    for url in urls:
+        try:
+            path = download_drive_file(url, MEDIA_DIR)
+        except Exception as e:
+            results.append({"url": url, "status": "error", "error": str(e)})
+            continue
+
+        file_stem = path.stem
+        existing = conn.execute("SELECT id FROM clips WHERE file_stem = ?", (file_stem,)).fetchone()
+        if existing:
+            results.append({
+                "url": url, "status": "matched_existing",
+                "file_stem": file_stem, "filename": path.name,
+            })
+        else:
+            duration = probe_duration(path)
+            conn.execute(
+                """
+                INSERT INTO clips (file_stem, duration_s, category, description, status)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (file_stem, duration, "", "", "imported"),
+            )
+            results.append({
+                "url": url, "status": "added_new_clip",
+                "file_stem": file_stem, "filename": path.name,
+            })
+    conn.commit()
+    conn.close()
+    return jsonify({"results": results})
 
 
 @app.get("/api/clips/<int:clip_id>/media")

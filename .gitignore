@@ -13,3 +13,6 @@ clips_out/*.mkv
 # clip metadata), so it's committed rather than ignored — only ignore caches.
 __pycache__/
 *.pyc
+# pywebview auto-creates this on macOS for its pyobjc/Cocoa backend when the
+# system Python lacks pyobjc -- a generated runtime artifact, not source.
+editor/venv/

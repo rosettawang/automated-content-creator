@@ -204,5 +204,39 @@ document.getElementById("suggest-content-btn").addEventListener("click", async (
   }
 });
 
+document.getElementById("drive-import-btn").addEventListener("click", async () => {
+  const resultEl = document.getElementById("drive-import-result");
+  const urls = document.getElementById("drive-links").value
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!urls.length) return;
+  resultEl.textContent = "Importing... (this can take a bit per link)";
+  try {
+    const result = await api("/api/drive-import", {
+      method: "POST",
+      body: JSON.stringify({ urls }),
+    });
+    resultEl.innerHTML = "";
+    result.results.forEach((r) => {
+      const line = document.createElement("div");
+      line.className = "drive-result-line";
+      if (r.status === "error") {
+        line.className += " drive-error";
+        line.textContent = `Failed: ${r.url} -- ${r.error}`;
+      } else if (r.status === "matched_existing") {
+        line.textContent = `${r.filename} -- matched existing clip "${r.file_stem}", now available locally`;
+      } else {
+        line.textContent = `${r.filename} -- added as new clip "${r.file_stem}"`;
+      }
+      resultEl.appendChild(line);
+    });
+    document.getElementById("drive-links").value = "";
+    await loadClips(document.getElementById("search").value);
+  } catch (err) {
+    resultEl.textContent = `Error: ${err.message}`;
+  }
+});
+
 loadClips();
 loadProjects();

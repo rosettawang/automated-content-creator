@@ -46,6 +46,13 @@ they're pulled down.
 no internet needed) over its audio; the result is saved to the clip's `transcript` field and
 shown under the preview. Takes a few seconds per clip on a laptop CPU; slower for longer clips.
 
+**Import from Drive** — paste one or more Google Drive share links (one per line, "anyone
+with the link" sharing) into the "Import from Drive" box in the library panel and hit
+Import. Each link is downloaded straight into `MEDIA_DIR` under its original filename; if
+the filename matches an already-indexed clip it just becomes available locally, otherwise
+a new clip row is added so it shows up in the library right away. Requires `MEDIA_DIR` to
+be set when launching.
+
 **AI-assisted rough cuts and content ideas** — requires an Anthropic API key:
 `export ANTHROPIC_API_KEY=...` before launching. Type what you want in the "Describe the
 video you want" box in the Timeline panel and hit "Generate rough cut" — Claude reads the

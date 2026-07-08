@@ -4,3 +4,5 @@ pywebview
 openai-whisper
 anthropic
 pydantic
+gdown
+composio
