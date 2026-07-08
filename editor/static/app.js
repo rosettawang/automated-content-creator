@@ -39,6 +39,9 @@ function selectClip(clip) {
   trimControls.style.display = clip.available_locally ? "flex" : "none";
   document.getElementById("in-point").value = 0;
   document.getElementById("out-point").value = clip.duration_s || 0;
+  document.getElementById("transcript-box").textContent = clip.transcript
+    ? `Transcript: ${clip.transcript}`
+    : "";
 }
 
 async function loadProjects() {
@@ -148,6 +151,19 @@ document.getElementById("export-btn").addEventListener("click", async () => {
     resultEl.textContent = `Exported to ${result.output}`;
   } catch (err) {
     resultEl.textContent = `Error: ${err.message}`;
+  }
+});
+
+document.getElementById("transcribe-btn").addEventListener("click", async () => {
+  if (!selectedClip) return;
+  const box = document.getElementById("transcript-box");
+  box.textContent = "Transcribing... (this can take a bit)";
+  try {
+    const result = await api(`/api/clips/${selectedClip.id}/transcribe`, { method: "POST" });
+    selectedClip.transcript = result.transcript;
+    box.textContent = `Transcript: ${result.transcript}`;
+  } catch (err) {
+    box.textContent = `Error: ${err.message}`;
   }
 });
 

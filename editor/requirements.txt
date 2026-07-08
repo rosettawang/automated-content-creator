@@ -1,2 +1,4 @@
 flask
 openpyxl
+pywebview
+openai-whisper

@@ -23,23 +23,32 @@ A lightweight pipeline that turns a raw media library into short-form social cli
 - `ads/` — Meta ads launch plan
 
 ## Editor app
-A local Flask app for browsing indexed clips, building a timeline, and exporting a cut.
+A rudimentary desktop video editor: browse indexed clips, transcribe them, build a timeline, export a cut.
 
 ```
 cd editor
 python3 -m pip install -r requirements.txt
 python3 migrate_xlsx.py          # syncs content_intake_log.xlsx -> editor/data/editor.db
-MEDIA_DIR=/path/to/local/footage python3 app.py
+MEDIA_DIR=/path/to/local/footage python3 desktop.py
 ```
 
-Then open `http://127.0.0.1:5001`. `MEDIA_DIR` should point at wherever you've temporarily
-pulled the actual clips (see "Storage during editing" in `video-editor-plan.md`) — clips
-without a matching local file still show up in the library (marked "not local") but can't
-be previewed or exported until they're pulled down.
+This opens a native window (via `pywebview`), not a browser tab — same app either way, since
+`desktop.py` just runs the Flask backend (`app.py`) in a background thread and points a window
+at it. If you'd rather use a browser tab (e.g. to use devtools), run `python3 app.py` instead and
+open `http://127.0.0.1:5001` yourself.
+
+`MEDIA_DIR` should point at wherever you've temporarily pulled the actual clips (see "Storage
+during editing" in `video-editor-plan.md`) — clips without a matching local file still show up
+in the library (marked "not local") but can't be previewed, transcribed, or exported until
+they're pulled down.
+
+**Transcription** — select a clip and hit "Transcribe" to run Whisper (`base` model, local,
+no internet needed) over its audio; the result is saved to the clip's `transcript` field and
+shown under the preview. Takes a few seconds per clip on a laptop CPU; slower for longer clips.
 
 Re-run `migrate_xlsx.py` any time the xlsx changes — it's a safe upsert by filename and
-won't touch existing projects/timelines. `editor/data/editor.db` holds your actual project/
-timeline work, so unlike the rest of this repo's temp/local media, it's committed to git.
+won't touch existing projects/timelines/transcripts. `editor/data/editor.db` holds your actual
+project/timeline work, so unlike the rest of this repo's temp/local media, it's committed to git.
 
 ## Notes
 - Large binaries (raw/rendered video) are kept out of git via `.gitignore` — they're temporary/local.

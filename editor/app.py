@@ -68,6 +68,39 @@ def clip_media(clip_id):
     return send_file(path)
 
 
+_whisper_model = None
+
+
+def get_whisper_model():
+    global _whisper_model
+    if _whisper_model is None:
+        import whisper
+        _whisper_model = whisper.load_model("base")
+    return _whisper_model
+
+
+@app.post("/api/clips/<int:clip_id>/transcribe")
+def transcribe_clip(clip_id):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
+    if not row:
+        conn.close()
+        return {"error": "not found"}, 404
+    path = find_media_file(row["file_stem"])
+    if not path:
+        conn.close()
+        return {"error": f"'{row['file_stem']}' not found in MEDIA_DIR"}, 404
+
+    model = get_whisper_model()
+    result = model.transcribe(str(path))
+    transcript = result["text"].strip()
+
+    conn.execute("UPDATE clips SET transcript = ? WHERE id = ?", (transcript, clip_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"transcript": transcript})
+
+
 @app.get("/api/projects")
 def list_projects():
     conn = get_conn()

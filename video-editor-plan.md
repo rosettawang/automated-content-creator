@@ -67,8 +67,11 @@ Three layers, each doing what it's actually good at:
 ## Decided
 
 - **App shape** — custom, rudimentary editor (not Descript). Built as a small local Flask app: `editor/app.py` + a single vanilla-JS page. Phases 1–3 above are implemented: xlsx → SQLite migration (`editor/migrate_xlsx.py`), a clip library with search, a timeline (add/trim/reorder/remove), and export via ffmpeg trim + concat to `clips_out/`. Semantic search (phase 5) is not built yet — search is still keyword/tag matching over the SQLite `clips` table.
+- **Presentation: native window, not a browser tab.** `editor/desktop.py` runs the same Flask app in a background thread and opens it in a `pywebview` window. This is a presentation-layer change only — the Flask backend, SQLite data, and ffmpeg export are unchanged and still reachable via a plain browser tab (`python3 app.py`) if that's ever more convenient (e.g. devtools debugging).
+- **Deeper analysis (motion, transcription) doesn't depend on UI shape.** Whether the UI is a webpage or a native window, backend analysis (Whisper, OpenCV, etc.) runs identically as Python code in the Flask process. First one built: **Whisper transcription** — `POST /api/clips/<id>/transcribe` runs the local `base` Whisper model over a clip's audio (no internet required) and stores the result in a new `clips.transcript` column. Exposed in the UI as a "Transcribe" button next to the preview. Motion detection would follow the same pattern (a new endpoint + a new `clips` column) whenever it's needed.
 
 ## Open decisions
 
-- **Where it runs** — currently local-only (`127.0.0.1:5001`). Reachable remotely only if that becomes a real need.
-- **Storage during editing** — confirmed: the app reads clips from a `MEDIA_DIR` you point it at (your temp local pull), not a permanent copy. Clips not yet pulled show up in the library (marked "not local") but can't be previewed/exported until they are.
+- **Where it runs** — currently local-only (`127.0.0.1:5001` under the hood, regardless of native-window or browser presentation). Reachable remotely only if that becomes a real need.
+- **Storage during editing** — confirmed: the app reads clips from a `MEDIA_DIR` you point it at (your temp local pull), not a permanent copy. Clips not yet pulled show up in the library (marked "not local") but can't be previewed/transcribed/exported until they are.
+- **Motion detection** — not yet built. Same pattern as transcription (OpenCV-based endpoint + stored column) whenever it's wanted.
