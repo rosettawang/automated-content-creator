@@ -20,6 +20,18 @@ body {
   overflow-y: auto;
 }
 
+#library {
+  display: flex;
+  flex-direction: column;
+  overflow-y: hidden;
+}
+
+#library #clip-list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 4rem;
+}
+
 h2 {
   margin-top: 0;
   font-size: 1rem;
