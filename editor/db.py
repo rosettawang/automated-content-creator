@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS clips (
     category TEXT,
     description TEXT,
     status TEXT,
-    transcript TEXT
+    transcript TEXT,
+    tags TEXT
 );
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -45,5 +46,7 @@ def init_db():
     existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(clips)")}
     if "transcript" not in existing_cols:
         conn.execute("ALTER TABLE clips ADD COLUMN transcript TEXT")
+    if "tags" not in existing_cols:
+        conn.execute("ALTER TABLE clips ADD COLUMN tags TEXT")
     conn.commit()
     conn.close()

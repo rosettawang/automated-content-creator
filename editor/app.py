@@ -17,8 +17,9 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_file, render_template
 
 from db import get_conn, init_db
-from claude_client import generate_rough_cut, suggest_content
+from claude_client import generate_rough_cut, suggest_content, analyze_frame
 from drive_import import download_drive_file, probe_duration
+from composio_wrapper import list_toolkit_actions, initiate_connection, execute_action
 
 MEDIA_DIR_RAW = os.environ.get("MEDIA_DIR", "").strip()
 MEDIA_DIR = Path(MEDIA_DIR_RAW).expanduser() if MEDIA_DIR_RAW else None
@@ -147,6 +148,52 @@ def transcribe_clip(clip_id):
     return jsonify({"transcript": transcript})
 
 
+@app.post("/api/clips/<int:clip_id>/analyze")
+def analyze_clip(clip_id):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
+    if not row:
+        conn.close()
+        return {"error": "not found"}, 404
+    path = find_media_file(row["file_stem"])
+    if not path:
+        conn.close()
+        return {"error": f"'{row['file_stem']}' not found in MEDIA_DIR"}, 404
+
+    duration = row["duration_s"] or 4.0
+    timestamp = min(2.0, duration / 2)
+    with tempfile.TemporaryDirectory() as tmp:
+        frame_path = Path(tmp) / "frame.jpg"
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-ss", str(timestamp), "-i", str(path),
+                "-frames:v", "1", str(frame_path),
+            ],
+            check=True, capture_output=True,
+        )
+        image_bytes = frame_path.read_bytes()
+
+    try:
+        analysis = analyze_frame(image_bytes)
+    except Exception as e:
+        conn.close()
+        return {"error": str(e)}, 502
+
+    tags_str = ", ".join(analysis.tags)
+    conn.execute(
+        "UPDATE clips SET description = ?, category = ?, tags = ? WHERE id = ?",
+        (analysis.description, analysis.category, tags_str, clip_id),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({
+        "description": analysis.description,
+        "category": analysis.category,
+        "tags": analysis.tags,
+    })
+
+
 @app.get("/api/projects")
 def list_projects():
     conn = get_conn()
@@ -237,6 +284,48 @@ def suggest_content_route():
     except Exception as e:
         return {"error": str(e)}, 502
     return jsonify({"ideas": [i.model_dump() for i in suggestions.ideas]})
+
+
+@app.get("/api/composio/actions")
+def composio_actions():
+    toolkit = request.args.get("toolkit", "").strip()
+    if not toolkit:
+        return {"error": "toolkit query param is required, e.g. ?toolkit=instagram"}, 400
+    try:
+        return jsonify(list_toolkit_actions(toolkit))
+    except Exception as e:
+        return {"error": str(e)}, 502
+
+
+@app.post("/api/composio/connect")
+def composio_connect():
+    data = request.json
+    toolkit = data.get("toolkit", "").strip()
+    auth_config_id = data.get("auth_config_id", "").strip()
+    if not toolkit or not auth_config_id:
+        return {"error": "toolkit and auth_config_id are required"}, 400
+    try:
+        connection = initiate_connection(
+            toolkit, auth_config_id, callback_url=data.get("callback_url")
+        )
+    except Exception as e:
+        return {"error": str(e)}, 502
+    return jsonify({"redirect_url": connection.redirect_url})
+
+
+@app.post("/api/composio/execute")
+def composio_execute():
+    data = request.json
+    action = data.get("action", "").strip()
+    if not action:
+        return {"error": "action is required"}, 400
+    try:
+        result = execute_action(action, data.get("arguments", {}))
+        if hasattr(result, "model_dump"):
+            result = result.model_dump()
+        return jsonify({"result": result})
+    except Exception as e:
+        return {"error": str(e)}, 502
 
 
 @app.post("/api/projects/<int:project_id>/items")

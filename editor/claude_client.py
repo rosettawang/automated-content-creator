@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from typing import List
 
 from anthropic import Anthropic
@@ -36,6 +37,12 @@ class ContentIdea(BaseModel):
 
 class ContentSuggestions(BaseModel):
     ideas: List[ContentIdea]
+
+
+class VisualAnalysis(BaseModel):
+    description: str
+    category: str
+    tags: List[str]
 
 
 def _format_clip_catalog(clips: list[dict]) -> str:
@@ -91,5 +98,32 @@ def suggest_content(clips: list[dict]) -> ContentSuggestions:
         thinking={"type": "adaptive"},
         messages=[{"role": "user", "content": message}],
         output_format=ContentSuggestions,
+    )
+    return response.parsed_output
+
+
+def analyze_frame(image_bytes: bytes, media_type: str = "image/jpeg") -> VisualAnalysis:
+    image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+    message = (
+        "This is a keyframe from a raw footage clip in a content library. Describe what's "
+        "visible in one or two sentences, suggest a short category label consistent with "
+        "labels like 'Gardening', 'Wildlife', 'Habitat', 'Caterpillar', 'Plant' (reuse an "
+        "existing-style label rather than inventing an overly specific one), and list a "
+        "handful of specific tags (subjects, setting, notable visual details)."
+    )
+    response = get_client().messages.parse(
+        model=MODEL,
+        max_tokens=1024,
+        messages=[{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": media_type, "data": image_b64},
+                },
+                {"type": "text", "text": message},
+            ],
+        }],
+        output_format=VisualAnalysis,
     )
     return response.parsed_output

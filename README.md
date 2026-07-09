@@ -23,19 +23,23 @@ A lightweight pipeline that turns a raw media library into short-form social cli
 - `ads/` — Meta ads launch plan
 
 ## Editor app
-A rudimentary desktop video editor: browse indexed clips, transcribe them, build a timeline, export a cut.
+A rudimentary desktop video editor: browse indexed clips, transcribe/analyze them, build a timeline, export a cut.
+
+**Requires Python 3.10+** (the Composio dependency needs `typing.TypeAlias`, added in 3.10 — plain
+`python3` may resolve to something older; on macOS `brew install python@3.11` and use that
+interpreter explicitly if so).
 
 ```
 cd editor
-python3 -m pip install -r requirements.txt
-python3 migrate_xlsx.py          # syncs content_intake_log.xlsx -> editor/data/editor.db
-MEDIA_DIR=/path/to/local/footage python3 desktop.py
+python3.11 -m pip install -r requirements.txt
+python3.11 migrate_xlsx.py          # syncs content_intake_log.xlsx -> editor/data/editor.db
+MEDIA_DIR=/path/to/local/footage python3.11 desktop.py
 ```
 
 This opens a native window (via `pywebview`), not a browser tab — same app either way, since
 `desktop.py` just runs the Flask backend (`app.py`) in a background thread and points a window
-at it. If you'd rather use a browser tab (e.g. to use devtools), run `python3 app.py` instead and
-open `http://127.0.0.1:5001` yourself.
+at it. If you'd rather use a browser tab (e.g. to use devtools), run `python3.11 app.py` instead
+and open `http://127.0.0.1:5001` yourself.
 
 `MEDIA_DIR` should point at wherever you've temporarily pulled the actual clips (see "Storage
 during editing" in `video-editor-plan.md`) — clips without a matching local file still show up
@@ -60,6 +64,11 @@ whole clip catalog (descriptions, categories, transcripts) and picks/orders clip
 in/out points onto the current project's timeline, which you can then hand-adjust as usual.
 "Suggest content ideas" (in the library panel) asks Claude what's missing from the existing
 footage and worth filming next, based on the same catalog.
+
+**Analyze frame** — select a clip and hit "Analyze frame" to grab a keyframe (via ffmpeg) and
+send it to Claude's vision to auto-fill `description`, `category`, and `tags`. Mainly useful
+for clips that came in with blank metadata (e.g. via Drive import) rather than through the
+original xlsx indexing pass; running it again overwrites whatever was there before.
 
 Re-run `migrate_xlsx.py` any time the xlsx changes — it's a safe upsert by filename and
 won't touch existing projects/timelines/transcripts. `editor/data/editor.db` holds your actual

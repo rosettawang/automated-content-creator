@@ -42,6 +42,9 @@ function selectClip(clip) {
   document.getElementById("transcript-box").textContent = clip.transcript
     ? `Transcript: ${clip.transcript}`
     : "";
+  document.getElementById("analysis-box").textContent = clip.tags
+    ? `Tags: ${clip.tags}`
+    : "";
 }
 
 async function loadProjects() {
@@ -162,6 +165,24 @@ document.getElementById("transcribe-btn").addEventListener("click", async () => 
     const result = await api(`/api/clips/${selectedClip.id}/transcribe`, { method: "POST" });
     selectedClip.transcript = result.transcript;
     box.textContent = `Transcript: ${result.transcript}`;
+  } catch (err) {
+    box.textContent = `Error: ${err.message}`;
+  }
+});
+
+document.getElementById("analyze-btn").addEventListener("click", async () => {
+  if (!selectedClip) return;
+  const box = document.getElementById("analysis-box");
+  box.textContent = "Analyzing frame...";
+  try {
+    const result = await api(`/api/clips/${selectedClip.id}/analyze`, { method: "POST" });
+    selectedClip.description = result.description;
+    selectedClip.category = result.category;
+    selectedClip.tags = result.tags.join(", ");
+    box.textContent = `${result.category} -- ${result.description} Tags: ${result.tags.join(", ")}`;
+    document.getElementById("preview-info").textContent =
+      `${selectedClip.file_stem} — ${selectedClip.duration_s || "?"}s — ${result.category}`;
+    await loadClips(document.getElementById("search").value);
   } catch (err) {
     box.textContent = `Error: ${err.message}`;
   }
