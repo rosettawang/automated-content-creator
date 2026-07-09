@@ -16,3 +16,5 @@ __pycache__/
 # pywebview auto-creates this on macOS for its pyobjc/Cocoa backend when the
 # system Python lacks pyobjc -- a generated runtime artifact, not source.
 editor/venv/
+# API keys (Composio, Anthropic, etc.) -- never commit secrets
+editor/.env

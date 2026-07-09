@@ -27,7 +27,10 @@ def list_toolkit_actions(toolkit: str, user_id: str = DEFAULT_USER_ID) -> list[d
     from your actual Composio account, rather than guessing them."""
     tools = get_client().tools.get(user_id=user_id, toolkits=[toolkit])
     return [
-        {"slug": t.slug, "name": getattr(t, "name", t.slug), "description": getattr(t, "description", "")}
+        {
+            "slug": t["function"]["name"],
+            "description": t["function"].get("description", ""),
+        }
         for t in tools
     ]
 

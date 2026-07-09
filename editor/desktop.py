@@ -24,6 +24,9 @@ def main():
     thread = threading.Thread(target=run_flask, daemon=True)
     thread.start()
     webview.create_window("Editor", f"http://127.0.0.1:{PORT}", width=1280, height=800)
+    webview.create_window(
+        "Clip Library", f"http://127.0.0.1:{PORT}/library", width=1100, height=760
+    )
     webview.start()
 
 

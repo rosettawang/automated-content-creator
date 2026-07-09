@@ -6,3 +6,4 @@ anthropic
 pydantic
 gdown
 composio
+python-dotenv

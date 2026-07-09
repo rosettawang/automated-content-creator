@@ -47,12 +47,23 @@ This replaced the originally-planned keyword/tag search + rank step — with onl
 
 ## Basic editor — minimum feature set
 
-- Load a project's timeline (ordered clips + in/out points)
-- Preview/scrub
-- Trim in/out per clip
-- Reorder clips
-- Swap a clip for another candidate from search results
-- Export (reuse the existing ffmpeg/FCPXML path already used in `clips_out/`)
+Implemented as a standard non-linear-editor (NLE) layout in its own window (separate from the
+Clip Library window):
+
+- ✅ Load a project's timeline (ordered clips + in/out points)
+- ✅ **Program monitor** — plays the whole timeline sequence end-to-end (segment-by-segment
+  playback of each clip's in→out window in one `<video>` element), with transport controls
+  (play/pause, prev/next clip, jump to start/end) and a running time readout
+- ✅ **Horizontal timeline** — time ruler, clip blocks sized proportional to their trimmed
+  duration, a draggable/clickable playhead for scrubbing
+- ✅ Trim in/out per clip by dragging the block's edges (persists via the item PUT endpoint)
+- ✅ Reorder clips by dragging blocks (persists via the reorder endpoint)
+- ✅ Zoom the timeline (pixels-per-second), delete the selected clip
+- ✅ Keyboard shortcuts: Space = play/pause, Del = remove selected, ←/→ = nudge playhead
+- ✅ Source panel — search the bin, preview a clip, mark In/Out (`[` / `]` at the source
+  playhead), add to the timeline; plus Transcribe / Analyze / Drive-import / content-ideas tools
+- ✅ Export (ffmpeg trim + concat to `clips_out/`)
+- Not yet: swap a timeline clip in place for another search candidate (currently: delete + re-add)
 
 ---
 

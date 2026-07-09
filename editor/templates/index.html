@@ -6,49 +6,86 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <div class="layout">
-    <div class="panel" id="library">
-      <h2>Import from Drive</h2>
-      <textarea id="drive-links" placeholder="Paste Google Drive share link(s), one per line" rows="3"></textarea>
-      <button id="drive-import-btn">Import</button>
-      <div id="drive-import-result"></div>
-      <h2>Content Ideas</h2>
-      <button id="suggest-content-btn">Suggest content ideas</button>
-      <div id="content-ideas"></div>
-      <h2>Clip Library</h2>
-      <input id="search" placeholder="search description / category / filename">
+  <div id="toolbar">
+    <select id="project-select" title="Project"></select>
+    <button id="new-project">New</button>
+    <input id="generate-prompt" placeholder="Describe the video you want, then Generate…">
+    <button id="generate-btn">Generate</button>
+    <span id="generate-result" class="status"></span>
+    <div class="spacer"></div>
+    <button id="export-btn">Export</button>
+    <span id="export-result" class="status"></span>
+  </div>
+
+  <div id="stage">
+    <div id="source-panel" class="panel">
+      <div class="panel-head">Source</div>
+      <input id="search" placeholder="search clips">
       <div id="clip-list"></div>
+
+      <div id="source-monitor">
+        <video id="source-video" controls></video>
+        <div id="source-info" class="muted"></div>
+        <div id="source-controls" style="display:none">
+          <label>In <input id="in-point" type="number" step="0.1"></label>
+          <label>Out <input id="out-point" type="number" step="0.1"></label>
+          <button id="set-in">[</button>
+          <button id="set-out">]</button>
+          <button id="add-to-timeline">Add ▸</button>
+        </div>
+        <div id="source-tools" style="display:none">
+          <button id="transcribe-btn">Transcribe</button>
+          <button id="analyze-btn">Analyze frame</button>
+        </div>
+        <div id="transcript-box" class="muted"></div>
+        <div id="analysis-box" class="muted"></div>
+      </div>
+
+      <details id="tools">
+        <summary>Tools</summary>
+        <div class="tools-body">
+          <div class="tool-label">Import from Drive</div>
+          <textarea id="drive-links" placeholder="Google Drive share link(s), one per line" rows="2"></textarea>
+          <button id="drive-import-btn">Import</button>
+          <div id="drive-import-result" class="muted"></div>
+          <div class="tool-label">Content ideas</div>
+          <button id="suggest-content-btn">Suggest content ideas</button>
+          <div id="content-ideas" class="muted"></div>
+        </div>
+      </details>
     </div>
 
-    <div class="panel" id="timeline-panel">
-      <h2>Timeline</h2>
-      <div>
-        <select id="project-select"></select>
-        <button id="new-project">New project</button>
+    <div id="program-panel" class="panel">
+      <div class="panel-head">Program</div>
+      <div id="program-monitor">
+        <video id="program-video"></video>
       </div>
-      <textarea id="generate-prompt" placeholder="Describe the video you want, e.g. '30s reel about the butterfly lifecycle'" rows="3"></textarea>
-      <button id="generate-btn">Generate rough cut</button>
-      <div id="generate-result"></div>
-      <div id="timeline-list"></div>
-      <button id="export-btn">Export</button>
-      <div id="export-result"></div>
-    </div>
-
-    <div class="panel" id="preview-panel">
-      <h2>Preview</h2>
-      <video id="preview" controls></video>
-      <div id="preview-info"></div>
-      <div id="trim-controls" style="display:none">
-        <label>In: <input id="in-point" type="number" step="0.1"></label>
-        <label>Out: <input id="out-point" type="number" step="0.1"></label>
-        <button id="add-to-timeline">Add to timeline</button>
-        <button id="transcribe-btn">Transcribe</button>
-        <button id="analyze-btn">Analyze frame</button>
+      <div id="transport">
+        <button id="jump-start" title="Jump to start">⏮</button>
+        <button id="step-back" title="Previous clip">◂</button>
+        <button id="play-pause" title="Play / pause (space)">▶</button>
+        <button id="step-fwd" title="Next clip">▸</button>
+        <button id="jump-end" title="Jump to end">⏭</button>
+        <span id="time-readout" class="time">0:00.0 / 0:00.0</span>
       </div>
-      <div id="transcript-box"></div>
-      <div id="analysis-box"></div>
     </div>
   </div>
+
+  <div id="timeline-region">
+    <div id="timeline-toolbar">
+      <span class="panel-head">Timeline</span>
+      <button id="zoom-out" title="Zoom out">−</button>
+      <button id="zoom-in" title="Zoom in">+</button>
+      <span id="timeline-hint" class="muted">drag a clip to reorder · drag its edges to trim · Del removes · Space plays</span>
+    </div>
+    <div id="timeline-scroll">
+      <div id="ruler"></div>
+      <div id="track">
+        <div id="playhead"></div>
+      </div>
+    </div>
+  </div>
+
   <script src="/static/app.js"></script>
 </body>
 </html>

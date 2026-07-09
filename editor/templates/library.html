@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Clip Library</title>
+  <link rel="stylesheet" href="/static/library.css">
+</head>
+<body>
+  <div id="library-header">
+    <h1>Clip Library</h1>
+    <input id="search" placeholder="search description / category / tags / filename">
+    <span id="count"></span>
+  </div>
+
+  <div id="grid"></div>
+
+  <div id="info-overlay" class="hidden">
+    <div id="info-card">
+      <button id="info-close">&times;</button>
+      <img id="info-thumb" alt="">
+      <h2 id="info-title"></h2>
+      <dl id="info-fields"></dl>
+    </div>
+  </div>
+
+  <script src="/static/library.js"></script>
+</body>
+</html>

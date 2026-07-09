@@ -14,6 +14,10 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
 from flask import Flask, jsonify, request, send_file, render_template
 
 from db import get_conn, init_db
@@ -23,7 +27,10 @@ from composio_wrapper import list_toolkit_actions, initiate_connection, execute_
 
 MEDIA_DIR_RAW = os.environ.get("MEDIA_DIR", "").strip()
 MEDIA_DIR = Path(MEDIA_DIR_RAW).expanduser() if MEDIA_DIR_RAW else None
-CLIPS_OUT = Path(__file__).resolve().parent.parent / "clips_out"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+CLIPS_OUT = REPO_ROOT / "clips_out"
+REFERENCE_FRAMES = REPO_ROOT / "reference_frames"
+THUMB_CACHE = Path(__file__).resolve().parent / "data" / "thumbs"
 
 app = Flask(__name__)
 
@@ -35,9 +42,62 @@ def find_media_file(file_stem: str) -> Path | None:
     return matches[0] if matches else None
 
 
+def find_reference_frame(file_stem: str) -> Path | None:
+    if not REFERENCE_FRAMES.is_dir():
+        return None
+    matches = sorted(
+        p for p in REFERENCE_FRAMES.iterdir()
+        if file_stem in p.name and p.suffix.lower() in (".jpg", ".jpeg", ".png")
+    )
+    return matches[0] if matches else None
+
+
 @app.get("/")
 def index():
     return render_template("index.html")
+
+
+@app.get("/library")
+def library():
+    return render_template("library.html")
+
+
+@app.get("/api/clips/<int:clip_id>/thumbnail")
+def clip_thumbnail(clip_id):
+    conn = get_conn()
+    row = conn.execute("SELECT file_stem FROM clips WHERE id = ?", (clip_id,)).fetchone()
+    conn.close()
+    if not row:
+        return {"error": "not found"}, 404
+    stem = row["file_stem"]
+
+    cached = THUMB_CACHE / f"{stem}.jpg"
+    if cached.exists():
+        return send_file(cached)
+
+    ref = find_reference_frame(stem)
+    if ref:
+        return send_file(ref)
+
+    media = find_media_file(stem)
+    if media:
+        THUMB_CACHE.mkdir(parents=True, exist_ok=True)
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg", "-y",
+                    "-ss", "1", "-i", str(media),
+                    "-frames:v", "1", "-vf", "scale=400:-1",
+                    str(cached),
+                ],
+                check=True, capture_output=True,
+            )
+        except Exception:
+            return {"error": "no thumbnail"}, 404
+        if cached.exists():
+            return send_file(cached)
+
+    return {"error": "no thumbnail"}, 404
 
 
 @app.get("/api/clips")
