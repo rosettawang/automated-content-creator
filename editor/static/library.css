@@ -41,6 +41,88 @@ body {
   white-space: nowrap;
 }
 
+#library-header button {
+  font-size: 0.82rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid #444;
+  background: #2c2c2c;
+  color: #eee;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+#library-header button:hover { background: #383838; }
+
+#import-status {
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
+  color: #bbb;
+  background: #232323;
+  border-bottom: 1px solid #333;
+}
+
+#import-status.error { color: #e08080; }
+.hidden { display: none; }
+
+#drive-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+#drive-card {
+  background: #262626;
+  border-radius: 10px;
+  padding: 1.25rem;
+  width: min(480px, 90vw);
+  position: relative;
+}
+
+#drive-card h2 { font-size: 1.05rem; margin: 0 0 0.5rem; }
+#drive-card .hint { font-size: 0.8rem; color: #999; margin: 0 0 0.75rem; }
+
+#drive-links {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 0.85rem;
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #444;
+  background: #1e1e1e;
+  color: #eee;
+  resize: vertical;
+  margin-bottom: 0.6rem;
+}
+
+#drive-submit {
+  font-size: 0.85rem;
+  padding: 0.45rem 0.8rem;
+  border-radius: 6px;
+  border: 1px solid #444;
+  background: #3a5c3a;
+  color: #eee;
+  cursor: pointer;
+}
+
+#drive-result { font-size: 0.8rem; color: #bbb; margin-top: 0.6rem; word-break: break-word; }
+
+#drive-close {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.8rem;
+  background: none;
+  border: none;
+  color: #aaa;
+  font-size: 1.6rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
 #grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));

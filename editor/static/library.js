@@ -95,8 +95,8 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") hideInfo();
 });
 
-document.getElementById("search").addEventListener("input", (e) => {
-  const q = e.target.value.trim().toLowerCase();
+function applyFilter() {
+  const q = document.getElementById("search").value.trim().toLowerCase();
   if (!q) return render(allClips);
   render(
     allClips.filter((c) =>
@@ -104,6 +104,91 @@ document.getElementById("search").addEventListener("input", (e) => {
         .some((v) => (v || "").toLowerCase().includes(q))
     )
   );
+}
+
+document.getElementById("search").addEventListener("input", applyFilter);
+
+// ---- import status helpers ----
+function summarize(results) {
+  const added = results.filter((r) => r.status === "added_new_clip").length;
+  const matched = results.filter((r) => r.status === "matched_existing").length;
+  const errors = results.filter((r) => r.status === "error");
+  const parts = [];
+  if (added) parts.push(`${added} added`);
+  if (matched) parts.push(`${matched} matched existing`);
+  if (errors.length) parts.push(`${errors.length} failed`);
+  let msg = parts.join(", ") || "nothing imported";
+  if (errors.length) {
+    msg += " — " + errors.map((e) => `${e.filename || e.url}: ${e.error}`).join("; ");
+  }
+  return msg;
+}
+
+function showStatus(text, isError) {
+  const el = document.getElementById("import-status");
+  el.textContent = text;
+  el.classList.remove("hidden");
+  el.classList.toggle("error", !!isError);
+}
+
+async function refreshAfterImport() {
+  await loadClips();
+  applyFilter();
+}
+
+// ---- local file import ----
+document.getElementById("import-files-btn").addEventListener("click", () => {
+  document.getElementById("file-input").click();
+});
+
+document.getElementById("file-input").addEventListener("change", async (e) => {
+  const files = e.target.files;
+  if (!files.length) return;
+  showStatus(`Uploading ${files.length} file(s)…`, false);
+  const form = new FormData();
+  for (const f of files) form.append("files", f);
+  try {
+    const res = await fetch("/api/import-files", { method: "POST", body: form });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    showStatus(summarize(body.results), body.results.some((r) => r.status === "error"));
+    await refreshAfterImport();
+  } catch (err) {
+    showStatus(`Error: ${err.message}`, true);
+  }
+  e.target.value = ""; // allow re-selecting the same file
+});
+
+// ---- Drive import ----
+function openDrive() { document.getElementById("drive-overlay").classList.remove("hidden"); }
+function closeDrive() { document.getElementById("drive-overlay").classList.add("hidden"); }
+
+document.getElementById("import-drive-btn").addEventListener("click", openDrive);
+document.getElementById("drive-close").addEventListener("click", closeDrive);
+document.getElementById("drive-overlay").addEventListener("click", (e) => {
+  if (e.target.id === "drive-overlay") closeDrive();
+});
+
+document.getElementById("drive-submit").addEventListener("click", async () => {
+  const urls = document.getElementById("drive-links").value
+    .split("\n").map((s) => s.trim()).filter(Boolean);
+  if (!urls.length) return;
+  const resultEl = document.getElementById("drive-result");
+  resultEl.textContent = "Importing… (this can take a bit per link)";
+  try {
+    const res = await fetch("/api/drive-import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ urls }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    resultEl.textContent = summarize(body.results);
+    document.getElementById("drive-links").value = "";
+    await refreshAfterImport();
+  } catch (err) {
+    resultEl.textContent = `Error: ${err.message}`;
+  }
 });
 
 loadClips();

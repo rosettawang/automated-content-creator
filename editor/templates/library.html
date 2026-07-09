@@ -10,6 +10,23 @@
     <h1>Clip Library</h1>
     <input id="search" placeholder="search description / category / tags / filename">
     <span id="count"></span>
+    <button id="import-files-btn">Import files</button>
+    <button id="import-drive-btn">Import from Drive</button>
+    <input id="file-input" type="file" multiple accept="video/*,image/*" hidden>
+  </div>
+
+  <div id="import-status" class="hidden"></div>
+
+  <div id="drive-overlay" class="hidden">
+    <div id="drive-card">
+      <button id="drive-close">&times;</button>
+      <h2>Import from Google Drive</h2>
+      <p class="hint">Paste one or more Drive share links (one per line). Each must be shared as
+        "anyone with the link".</p>
+      <textarea id="drive-links" rows="4" placeholder="https://drive.google.com/file/d/…/view"></textarea>
+      <button id="drive-submit">Import</button>
+      <div id="drive-result"></div>
+    </div>
   </div>
 
   <div id="grid"></div>

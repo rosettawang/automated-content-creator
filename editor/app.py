@@ -119,6 +119,24 @@ def list_clips():
     return jsonify(clips)
 
 
+def register_clip_file(conn, path: Path) -> dict:
+    """Register a freshly-added media file (downloaded or uploaded) as a clip:
+    match an existing row by filename stem, or insert a new one with blank metadata."""
+    file_stem = path.stem
+    existing = conn.execute("SELECT id FROM clips WHERE file_stem = ?", (file_stem,)).fetchone()
+    if existing:
+        return {"status": "matched_existing", "file_stem": file_stem, "filename": path.name}
+    duration = probe_duration(path)
+    conn.execute(
+        """
+        INSERT INTO clips (file_stem, duration_s, category, description, status)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (file_stem, duration, "", "", "imported"),
+    )
+    return {"status": "added_new_clip", "file_stem": file_stem, "filename": path.name}
+
+
 @app.post("/api/drive-import")
 def drive_import():
     if MEDIA_DIR is None:
@@ -136,27 +154,39 @@ def drive_import():
         except Exception as e:
             results.append({"url": url, "status": "error", "error": str(e)})
             continue
+        res = register_clip_file(conn, path)
+        res["url"] = url
+        results.append(res)
+    conn.commit()
+    conn.close()
+    return jsonify({"results": results})
 
-        file_stem = path.stem
-        existing = conn.execute("SELECT id FROM clips WHERE file_stem = ?", (file_stem,)).fetchone()
-        if existing:
-            results.append({
-                "url": url, "status": "matched_existing",
-                "file_stem": file_stem, "filename": path.name,
-            })
-        else:
-            duration = probe_duration(path)
-            conn.execute(
-                """
-                INSERT INTO clips (file_stem, duration_s, category, description, status)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (file_stem, duration, "", "", "imported"),
-            )
-            results.append({
-                "url": url, "status": "added_new_clip",
-                "file_stem": file_stem, "filename": path.name,
-            })
+
+@app.post("/api/import-files")
+def import_files():
+    if MEDIA_DIR is None:
+        return {"error": "MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder"}, 400
+
+    files = request.files.getlist("files")
+    if not files:
+        return {"error": "no files provided"}, 400
+
+    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+    conn = get_conn()
+    results = []
+    for f in files:
+        name = Path(f.filename or "").name  # strip any directory components (path-traversal guard)
+        if not name:
+            results.append({"filename": f.filename, "status": "error", "error": "invalid filename"})
+            continue
+        dest = MEDIA_DIR / name
+        try:
+            f.save(str(dest))
+        except Exception as e:
+            results.append({"filename": name, "status": "error", "error": str(e)})
+            continue
+        res = register_clip_file(conn, dest)
+        results.append(res)
     conn.commit()
     conn.close()
     return jsonify({"results": results})
