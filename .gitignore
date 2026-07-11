@@ -11,8 +11,11 @@ clips_out/*.mp4
 clips_out/*.mov
 clips_out/*.mkv
 # Keep: clips_out/*.fcpxml, clips_out/*.txt (edit decisions & notes)
-# Editor app: clips.db holds real project/timeline work (not just regenerable
-# clip metadata), so it's committed rather than ignored — only ignore caches.
+# Editor app database — written live by the running app. NOT tracked: a git
+# checkout/switch would otherwise revert (and has wiped) the user's real library.
+# Recover the catalog from content_intake_log.xlsx (migrate_xlsx.py); keep local
+# editor.db.bak-* backups for timelines/edits.
+editor/data/editor.db
 __pycache__/
 *.pyc
 # pywebview auto-creates this on macOS for its pyobjc/Cocoa backend when the
