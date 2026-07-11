@@ -43,9 +43,12 @@ async function loadClips(query = "") {
 // ---- cross-panel clip sync ----
 // Tell the shell a clip changed (no-op when opened standalone).
 function broadcastClipUpdated(id) {
+  const msg = { studio: "clip-updated", clipId: Number(id) };
   try {
     if (window.parent && window.parent !== window) {
-      window.parent.postMessage({ studio: "clip-updated", clipId: Number(id) }, "*");
+      window.parent.postMessage(msg, "*");   // iframe workspace: shell relays to siblings
+    } else {
+      window.postMessage(msg, "*");           // unified /studio: both panels listen on this window
     }
   } catch (_) { /* ignore */ }
 }

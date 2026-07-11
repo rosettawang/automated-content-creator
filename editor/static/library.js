@@ -11,9 +11,12 @@ window.studioLibrary = { getClip: (id) => allClips.find((c) => c.id === Number(i
 // Tell the workspace shell a clip changed, so sibling panels refresh. No-op when
 // this page is opened standalone (not inside the shell).
 function broadcastClipUpdated(id) {
+  const msg = { studio: "clip-updated", clipId: Number(id) };
   try {
     if (window.parent && window.parent !== window) {
-      window.parent.postMessage({ studio: "clip-updated", clipId: Number(id) }, "*");
+      window.parent.postMessage(msg, "*");   // iframe workspace: shell relays to siblings
+    } else {
+      window.postMessage(msg, "*");           // unified /studio: both panels listen on this window
     }
   } catch (_) { /* ignore */ }
 }
