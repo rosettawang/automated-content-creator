@@ -60,8 +60,7 @@ def main():
     api = NativeApi()
     # One window, one document: /studio hosts Editor / Clip Library / Campaigns as
     # sibling sections (no iframes) with a left rail, native cross-panel drag, and
-    # live shared state. (The older iframe shell at /workspace is still served as a
-    # fallback but is no longer the default.)
+    # live shared state.
     webview.create_window(
         "Content Studio", f"http://127.0.0.1:{PORT}/studio",
         width=1500, height=920, js_api=api,

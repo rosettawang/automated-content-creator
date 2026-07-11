@@ -1187,16 +1187,11 @@ def index():
     return render_template("index.html")
 
 
-@app.get("/workspace")
-def workspace():
-    return render_template("workspace.html")
-
-
 @app.get("/studio")
 def studio():
-    """Unified single-document workspace (Editor + Library in one DOM, no iframes).
-    In-progress replacement for the iframe /workspace; kept on its own route so the
-    working app is never at risk while it's built out."""
+    """The workspace: Editor + Library + Campaigns as sibling sections of ONE
+    document (no iframes), with a rail, native cross-panel drag, and live shared
+    state. Opened by the desktop app."""
     return render_template("studio.html")
 
 
