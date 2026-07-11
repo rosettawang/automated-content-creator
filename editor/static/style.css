@@ -561,7 +561,8 @@ html.embedded #nav-links,
 html.embedded #app-title { display: none; }
 
 /* Embedded in the workspace: the Clip Library panel sits to the left, so the
-   editor's own Source column is redundant — drop it and give the row to
-   Program + Edit chat. (Standalone /editor keeps Source.) */
+   editor's own Source column is redundant — drop it and let the Program monitor
+   use the full width. (Chat is now a full-width band at the bottom, not a right
+   column, so the stage is a single column here.) */
 html.embedded #source-panel { display: none; }
-html.embedded #stage { grid-template-columns: 1fr 340px; }
+html.embedded #stage { grid-template-columns: 1fr; }

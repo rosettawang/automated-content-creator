@@ -556,7 +556,7 @@ function applyFilter() {
     runSemanticSearch();
     return;
   }
-  let q = document.getElementById("search").value.trim().toLowerCase();
+  let q = document.getElementById("lib-search").value.trim().toLowerCase();
   const includePhotos = document.getElementById("include-photos").checked;
   let clips = allClips;
   if (!includePhotos) clips = clips.filter((c) => c.kind !== "photo");
@@ -611,7 +611,7 @@ function sortClips(clips, mode) {
 let _semanticTimer = null;
 
 function runSemanticSearch() {
-  const q = document.getElementById("search").value.trim();
+  const q = document.getElementById("lib-search").value.trim();
   // Empty query in semantic mode: fall back to the normal (unfiltered) view.
   if (!q) {
     const includePhotos = document.getElementById("include-photos").checked;
@@ -669,11 +669,11 @@ function showBuildIndexHint() {
   document.getElementById("library-header").appendChild(btn);
 }
 
-document.getElementById("search").addEventListener("input", applyFilter);
+document.getElementById("lib-search").addEventListener("input", applyFilter);
 document.getElementById("sort-by").addEventListener("change", applyFilter);
 document.getElementById("semantic-mode").addEventListener("change", () => {
   const on = document.getElementById("semantic-mode").checked;
-  document.getElementById("search").placeholder = on
+  document.getElementById("lib-search").placeholder = on
     ? "describe what you're looking for — ranked by meaning"
     : "search description / category / tags / filename";
   applyFilter();
@@ -689,13 +689,13 @@ includePhotosBox.addEventListener("change", () => {
 
 // ---- view-settings popup (gear) ----
 const settingsOverlay = document.getElementById("settings-overlay");
-document.getElementById("settings-btn").addEventListener("click", () => {
+document.getElementById("lib-settings-btn").addEventListener("click", () => {
   settingsOverlay.classList.remove("hidden");
 });
 // In the workspace shell the pane header owns the gear (left of the ×); hide the
 // in-header one and let the shell drive this overlay via postMessage.
 if (window.self !== window.top) {
-  document.getElementById("settings-btn").style.display = "none";
+  document.getElementById("lib-settings-btn").style.display = "none";
 }
 window.addEventListener("message", (e) => {
   if (e.data && e.data.studio === "toggle-settings") {

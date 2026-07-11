@@ -1,0 +1,29 @@
+/* Unified single-document workspace: Library + Editor as real sections of ONE
+   page (no iframes). Loaded LAST so its body/layout rules win over the two panels'
+   full-page stylesheets, which each still assume they own the document. */
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  display: flex;
+  overflow: hidden;
+  background: #1a1a1a;
+  color: #e6e6e6;
+  font-family: -apple-system, sans-serif;
+}
+
+#studio { display: flex; width: 100%; height: 100vh; min-height: 0; }
+
+.studio-pane {
+  height: 100vh;
+  min-width: 0;               /* let flex children shrink instead of overflowing */
+  overflow: hidden;
+  border-right: 1px solid #000;
+}
+.studio-pane:last-child { border-right: none; }
+
+/* Library: a scrolling column (its header is sticky within). */
+.pane-library { flex: 1 1 0; overflow-y: auto; }
+
+/* Editor: a full-height flex column so #stage (flex:1) and the timeline lay out,
+   exactly as they did when <body> was their column parent standalone. */
+.pane-editor { flex: 1.4 1 0; display: flex; flex-direction: column; }

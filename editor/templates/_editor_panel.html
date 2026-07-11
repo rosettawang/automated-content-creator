@@ -1,0 +1,177 @@
+  <div id="toolbar">
+    <h1 id="app-title">Editor</h1>
+    <nav id="nav-links">
+      <a href="/" class="active">Editor</a>
+      <a href="/library">Clip Library</a>
+      <a href="/projects">Campaigns</a>
+    </nav>
+    <div id="context-bar" title="You're editing the current cut in this campaign">
+      <span class="ctx-label">Campaign</span>
+      <select id="project-select" title="Campaign (theme)"></select>
+      <span class="ctx-sep" aria-hidden="true">›</span>
+      <span id="current-edit-name" class="ctx-current" title="Double-click to rename this edit"></span>
+      <input id="edit-name-input" class="hidden" maxlength="120" aria-label="Edit name">
+    </div>
+    <input id="generate-prompt" placeholder="Describe the video you want, then Generate…">
+    <button id="generate-btn">Generate</button>
+    <span id="generate-result" class="status"></span>
+    <div class="spacer"></div>
+    <button id="export-btn">Export</button>
+    <span id="export-result" class="status"></span>
+    <div id="settings-wrap">
+      <button id="settings-btn" title="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded="false">⚙</button>
+      <div id="settings-popover" class="hidden" role="menu">
+        <div class="settings-title">Settings</div>
+        <label class="settings-row" title="Output frame / aspect ratio">
+          <span class="settings-label">Frame</span>
+          <select id="aspect-select">
+            <option value="source">Source (no reframe)</option>
+            <option value="9:16">9:16 vertical (Reels/TikTok)</option>
+            <option value="4:5">4:5 portrait (feed)</option>
+            <option value="1:1">1:1 square</option>
+            <option value="16:9">16:9 landscape</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div id="stage">
+    <div id="source-panel" class="panel">
+      <div class="panel-head">Source</div>
+      <input id="search" placeholder="search clips">
+
+      <div id="bulk-bar" style="display:none">
+        <div class="bulk-head"><span id="bulk-count">0 selected</span>
+          <button id="bulk-clear" class="link-btn">clear</button></div>
+        <input id="bulk-category" placeholder="Category (optional)">
+        <input id="bulk-tags" placeholder="Tags, comma-separated (optional)">
+        <textarea id="bulk-context" rows="2" placeholder="Describe these clips together…"></textarea>
+        <div class="meta-row">
+          <label class="stamp-opt"><input type="checkbox" id="bulk-stamp"> embed in files</label>
+          <button id="bulk-apply">Apply to selected</button>
+          <span id="bulk-result" class="status"></span>
+        </div>
+      </div>
+
+      <div id="clip-list"></div>
+
+      <div id="source-monitor">
+        <video id="source-video" controls></video>
+        <div id="source-info" class="muted"></div>
+        <div id="source-controls" style="display:none">
+          <label>In <input id="in-point" type="number" step="0.1"></label>
+          <label>Out <input id="out-point" type="number" step="0.1"></label>
+          <button id="set-in">[</button>
+          <button id="set-out">]</button>
+          <button id="add-to-timeline">Add ▸</button>
+        </div>
+        <div id="source-tools" style="display:none">
+          <button id="transcribe-btn">Transcribe</button>
+          <button id="analyze-btn">Analyze frame</button>
+        </div>
+        <div id="transcript-box" class="muted"></div>
+        <div id="analysis-box" class="muted"></div>
+
+        <div id="metadata-editor" style="display:none">
+          <div class="tool-label">Describe this clip</div>
+          <textarea id="meta-description" rows="2" placeholder="Description (one-line summary, shown in the library)"></textarea>
+          <input id="meta-category" placeholder="Category">
+          <input id="meta-tags" placeholder="Tags, comma-separated">
+          <textarea id="meta-context" rows="3" placeholder="Context — your own notes about this clip: what it's for, why it matters, how to use it…"></textarea>
+          <div class="meta-row">
+            <label class="stamp-opt"><input type="checkbox" id="meta-stamp"> embed in file</label>
+            <button id="save-meta-btn">Save</button>
+            <span id="save-meta-result" class="status"></span>
+          </div>
+        </div>
+      </div>
+
+      <details id="tools">
+        <summary>Tools</summary>
+        <div class="tools-body">
+          <div class="tool-label">Import from Drive</div>
+          <textarea id="drive-links" placeholder="Google Drive share link(s), one per line" rows="2"></textarea>
+          <button id="drive-import-btn">Import</button>
+          <div id="drive-import-result" class="muted"></div>
+          <div class="tool-label">Content ideas</div>
+          <button id="suggest-content-btn">Suggest content ideas</button>
+          <div id="content-ideas" class="muted"></div>
+          <div class="tool-label">Metadata index</div>
+          <button id="stamp-all-btn" title="Embed each clip's metadata into its local file (XMP/EXIF)">Embed all into files</button>
+          <button id="export-xlsx-btn" title="Write the index back to content_intake_log.xlsx">Export to xlsx</button>
+          <div id="metadata-index-result" class="muted"></div>
+        </div>
+      </details>
+    </div>
+
+    <div id="program-panel" class="panel">
+      <div class="panel-head">Program</div>
+      <div id="program-monitor">
+        <video id="program-video"></video>
+        <div id="crop-overlay" class="hidden">
+          <div id="crop-box"><div id="crop-grid"></div></div>
+        </div>
+      </div>
+      <div id="crop-controls" class="hidden">
+        <span class="crop-title">Frame ✂</span>
+        <label>Zoom <input id="crop-zoom" type="range" min="1" max="3" step="0.05" value="1"></label>
+        <label>Motion
+          <select id="crop-motion" title="Ken Burns: animate the frame across the clip">
+            <option value="none">None</option>
+            <option value="in">Push in</option>
+            <option value="out">Pull out</option>
+            <option value="right">Pan →</option>
+            <option value="left">Pan ←</option>
+          </select>
+        </label>
+        <button id="crop-suggest" title="Let the director (AI) propose a crop">✨ Suggest</button>
+        <button id="crop-reset" title="Back to auto center-crop">Reset</button>
+        <span id="crop-status" class="status"></span>
+      </div>
+      <div id="transport">
+        <button id="jump-start" title="Jump to start">⏮</button>
+        <button id="step-back" title="Previous clip">◂</button>
+        <button id="play-pause" title="Play / pause (space)">▶</button>
+        <button id="step-fwd" title="Next clip">▸</button>
+        <button id="jump-end" title="Jump to end">⏭</button>
+        <span id="time-readout" class="time">0:00.0 / 0:00.0</span>
+      </div>
+    </div>
+
+  </div>
+
+  <div id="timeline-resizer" class="v-resizer" title="Drag up/down to resize the timeline"></div>
+
+  <div id="timeline-region">
+    <div id="timeline-toolbar">
+      <span class="panel-head">Timeline</span>
+      <button id="zoom-out" title="Zoom out">−</button>
+      <button id="zoom-in" title="Zoom in">+</button>
+      <span id="timeline-hint" class="muted">drag a clip to reorder · drag its edges to trim · Del removes · Space plays</span>
+    </div>
+    <div id="timeline-scroll">
+      <div id="ruler"></div>
+      <div id="track">
+        <div id="playhead"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="chat-resizer" class="v-resizer" title="Drag up/down to resize the chat panel"></div>
+
+  <div id="chat-panel" class="panel">
+    <div class="panel-head">
+      Edit chat
+      <button id="chat-undo" title="Undo the last AI edit" disabled>↶ Undo</button>
+    </div>
+    <div id="chat-messages">
+      <div class="chat-empty">Ask for changes to this edit — e.g. “tighten it to 20 seconds”,
+        “open on the butterfly shot”, “drop the machinery clips”. Each request can be undone.</div>
+    </div>
+    <form id="chat-form">
+      <textarea id="chat-input" rows="2" placeholder="Describe an edit…"></textarea>
+      <button id="chat-send" type="submit">Send</button>
+    </form>
+  </div>
+

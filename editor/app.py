@@ -1192,6 +1192,14 @@ def workspace():
     return render_template("workspace.html")
 
 
+@app.get("/studio")
+def studio():
+    """Unified single-document workspace (Editor + Library in one DOM, no iframes).
+    In-progress replacement for the iframe /workspace; kept on its own route so the
+    working app is never at risk while it's built out."""
+    return render_template("studio.html")
+
+
 @app.get("/library")
 def library():
     return render_template("library.html")

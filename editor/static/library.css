@@ -27,7 +27,7 @@ body {
   min-width: 9rem;
 }
 
-#search {
+#lib-search {
   flex: 1;
   font-size: 0.9rem;
   padding: 0.45rem;
@@ -184,7 +184,7 @@ body {
 #project-action-status { font-size: 0.78rem; color: #9fbf9f; white-space: nowrap; }
 
 /* Gear button — opens the view-settings popup. */
-#settings-btn {
+#lib-settings-btn {
   font-size: 1rem;
   line-height: 1;
   padding: 0.4rem 0.55rem;
