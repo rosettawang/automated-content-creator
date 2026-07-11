@@ -692,16 +692,6 @@ const settingsOverlay = document.getElementById("settings-overlay");
 document.getElementById("lib-settings-btn").addEventListener("click", () => {
   settingsOverlay.classList.remove("hidden");
 });
-// In the workspace shell the pane header owns the gear (left of the ×); hide the
-// in-header one and let the shell drive this overlay via postMessage.
-if (window.self !== window.top) {
-  document.getElementById("lib-settings-btn").style.display = "none";
-}
-window.addEventListener("message", (e) => {
-  if (e.data && e.data.studio === "toggle-settings") {
-    settingsOverlay.classList.toggle("hidden");
-  }
-});
 document.getElementById("settings-close").addEventListener("click", () => {
   settingsOverlay.classList.add("hidden");
 });

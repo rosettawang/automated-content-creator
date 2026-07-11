@@ -317,16 +317,6 @@ document.getElementById("aspect-select").addEventListener("change", async (e) =>
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") setOpen(false);
   });
-
-  // In the workspace shell the pane header owns the gear (top-right, left of the
-  // ×) and drives this popover via postMessage; hide the redundant in-toolbar
-  // button but keep its wrapper as the popover's anchor.
-  if (window.self !== window.top) btn.style.display = "none";
-  window.addEventListener("message", (e) => {
-    if (e.data && e.data.studio === "toggle-settings") {
-      setOpen(pop.classList.contains("hidden"));
-    }
-  });
 })();
 
 function rebuildSegments() {
@@ -635,14 +625,6 @@ async function doExport() {
   } catch (err) { el.textContent = `Error: ${err.message}`; }
 }
 document.getElementById("export-btn").addEventListener("click", doExport);
-// The workspace pane header hosts an Export icon (left of the gear) that fires this
-// via postMessage; hide the redundant in-toolbar Export button when embedded.
-if (window.self !== window.top) {
-  document.getElementById("export-btn").style.display = "none";
-}
-window.addEventListener("message", (e) => {
-  if (e.data && e.data.studio === "export") doExport();
-});
 
 // ---- double-click the edit name to rename it ----
 (function () {
