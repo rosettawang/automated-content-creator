@@ -1,6 +1,3 @@
-// Wrapped in an IIFE so this panel's top-level names stay private and don't collide
-// with the Editor panel in the unified document. Cross-panel hooks via window.* below.
-(function () {
 let allClips = [];
 const selectedClipIds = new Set(); // clips hand-picked to scope generation
 let currentProjectId = ""; // "" = All clips, else a project id (string)
@@ -1255,5 +1252,4 @@ currentProjectId = new URLSearchParams(window.location.search).get("project") ||
 (async () => {
   await loadProjects();
   await loadClips();
-})();
 })();

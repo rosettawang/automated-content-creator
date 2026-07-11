@@ -1,7 +1,3 @@
-// Wrapped in an IIFE so this panel's top-level names (loadClips, clips,
-// currentProjectId, …) stay private and don't collide with the Library panel when
-// both run in one unified document. Cross-panel hooks are exposed via window.* below.
-(function () {
 // ---------- state ----------
 let currentProjectId = null;
 let currentEditId = null;
@@ -964,4 +960,3 @@ async function init() {
 }
 
 init();
-})();
