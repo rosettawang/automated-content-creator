@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "content-creator": {
+      "command": "editor/venv/bin/python",
+      "args": ["editor/mcp_server.py"],
+      "env": {
+        "EDITOR_URL": "http://127.0.0.1:5001"
+      }
+    }
+  }
+}

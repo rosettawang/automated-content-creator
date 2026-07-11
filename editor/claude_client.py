@@ -30,6 +30,53 @@ class RoughCutPlan(BaseModel):
     selections: List[ClipSelection]
 
 
+class EditChatResult(BaseModel):
+    reply: str                        # short, conversational summary of what changed
+    selections: List[ClipSelection]   # the COMPLETE new timeline, in play order
+
+
+def _format_timeline(items: list[dict]) -> str:
+    if not items:
+        return "(the timeline is currently empty)"
+    lines = []
+    for i, it in enumerate(items):
+        lines.append(
+            f"{i + 1}. clip_id={it['clip_id']} file={it.get('file_stem', '')} "
+            f"in={it.get('in_point', 0)} out={it.get('out_point', 0)} "
+            f"dur={it.get('duration_s', '?')}s desc=\"{it.get('description', '') or ''}\""
+        )
+    return "\n".join(lines)
+
+
+def revise_edit(instruction: str, current_timeline: list[dict], clips: list[dict]) -> EditChatResult:
+    """Revise an existing timeline per a natural-language instruction. Returns a short
+    reply plus the COMPLETE new timeline (the model may reorder, trim, drop, or add
+    clips from the catalog). Preserves anything the instruction doesn't touch."""
+    catalog = _format_clip_catalog(clips)
+    current = _format_timeline(current_timeline)
+    message = (
+        "You are an assistant editing a video timeline built from a library of "
+        "already-shot clips. Apply the user's instruction to the CURRENT timeline and "
+        "return the COMPLETE revised timeline as an ordered list of selections "
+        "(clip_id + in/out points in seconds within each clip's own duration). Only use "
+        "clip ids from the catalog. Preserve the parts of the timeline the user didn't "
+        "ask to change (keep their order and in/out points). Keep cuts tight and "
+        "purposeful. Also give a short, friendly one- or two-sentence reply describing "
+        "what you changed.\n\n"
+        f"CURRENT TIMELINE (in order):\n{current}\n\n"
+        f"CLIP CATALOG (available to pull from):\n{catalog}\n\n"
+        f"USER INSTRUCTION: {instruction}"
+    )
+    response = get_client().messages.parse(
+        model=MODEL,
+        max_tokens=8000,
+        thinking={"type": "adaptive"},
+        messages=[{"role": "user", "content": message}],
+        output_format=EditChatResult,
+    )
+    return response.parsed_output
+
+
 class ContentIdea(BaseModel):
     idea: str
     rationale: str
@@ -43,6 +90,377 @@ class VisualAnalysis(BaseModel):
     description: str
     category: str
     tags: List[str]
+    # Names (verbatim from the provided watchlist) of target things visible in the
+    # frame. Empty when no watchlist is given or nothing matches.
+    matched_things: List[str] = []
+
+
+class SceneSegment(BaseModel):
+    t_start: float          # seconds into the clip
+    t_end: float
+    description: str        # what happens in this span (subjects, action, camera/shot)
+    things: List[str] = []  # watchlist names visible in this span (verbatim)
+
+
+class DeepIndex(BaseModel):
+    description: str        # 1-3 sentence clip-level summary
+    category: str
+    tags: List[str]
+    matched_things: List[str] = []   # watchlist names present anywhere in the clip
+    segments: List[SceneSegment]     # timeline covering the clip start to end
+
+
+def _deep_index_content(
+    frames: list[tuple[float, bytes]],
+    duration: float,
+    transcript_segments: list[dict] | None = None,
+    watchlist: list[dict] | None = None,
+    media_type: str = "image/jpeg",
+) -> list[dict]:
+    """The user-message content blocks for one deep-index pass (shared by the
+    synchronous call and the Batch API path)."""
+    content: list[dict] = []
+    for t, img in frames:
+        content.append({"type": "text", "text": f"Frame at t={t:.1f}s:"})
+        content.append({
+            "type": "image",
+            "source": {"type": "base64", "media_type": media_type,
+                       "data": base64.standard_b64encode(img).decode("utf-8")},
+        })
+
+    ts = ""
+    if transcript_segments:
+        lines = [f"[{s['t_start']:.1f}-{s['t_end']:.1f}s] {s['text']}" for s in transcript_segments]
+        ts = "\n\nTimestamped transcript of the clip's audio:\n" + "\n".join(lines)
+
+    watch = ""
+    if watchlist:
+        watch = (
+            "\n\nThe user tracks these specific subjects. Where one is clearly visible, "
+            "include its bare name (exactly as written, no kind label) in that segment's "
+            "`things` and in `matched_things`. Don't guess:\n"
+            + _format_watchlist(watchlist)
+        )
+
+    content.append({"type": "text", "text": (
+        f"These are frames sampled from a single {duration:.1f}s video clip in a content "
+        "library, labeled with their timestamps. Build an editing index for it:\n"
+        "1. `description`: 1-3 sentences on what the clip shows overall.\n"
+        "2. `category`: a short label consistent with 'Gardening', 'Wildlife', 'Machinery', etc.\n"
+        "3. `tags`: specific subjects/setting/visual details.\n"
+        "4. `segments`: a timeline of consecutive spans covering 0 to "
+        f"{duration:.1f}s. Start a new segment when the action, subject, or shot changes. "
+        "For each, describe what happens concretely enough that an editor could pick the "
+        "right moment to cut to (action, subjects, camera/framing). Use the transcript to "
+        "inform what's happening." + ts + watch
+    )})
+    return content
+
+
+def deep_index_clip(
+    frames: list[tuple[float, bytes]],
+    duration: float,
+    transcript_segments: list[dict] | None = None,
+    watchlist: list[dict] | None = None,
+    media_type: str = "image/jpeg",
+) -> DeepIndex:
+    """ONE deep 'analyze once, edit forever' pass over a clip -> clip summary +
+    a timestamped segment timeline detailed enough to cut from."""
+    content = _deep_index_content(frames, duration, transcript_segments, watchlist, media_type)
+    response = get_client().messages.parse(
+        model=MODEL,
+        max_tokens=4000,
+        messages=[{"role": "user", "content": content}],
+        output_format=DeepIndex,
+    )
+    return response.parsed_output
+
+
+def deep_index_batch_request(custom_id: str, frames, duration,
+                             transcript_segments=None, watchlist=None) -> dict:
+    """One Batch API request entry for a deep-index pass (50% price, async).
+    Uses a JSON instruction + tolerant parse instead of messages.parse."""
+    content = _deep_index_content(frames, duration, transcript_segments, watchlist)
+    content.append({"type": "text", "text": (
+        "Respond with ONLY a JSON object (no prose, no code fences) with keys: "
+        "description (string), category (string), tags (string[]), "
+        "matched_things (string[]), segments (array of {t_start: number, "
+        "t_end: number, description: string, things: string[]})."
+    )})
+    return {
+        "custom_id": custom_id,
+        "params": {
+            "model": MODEL,
+            "max_tokens": 4000,
+            "messages": [{"role": "user", "content": content}],
+        },
+    }
+
+
+def parse_deep_index_json(text: str) -> DeepIndex:
+    """Tolerant parse of a batch result's text into a DeepIndex."""
+    import json, re
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if not m:
+        raise ValueError("no JSON object in response")
+    return DeepIndex.model_validate(json.loads(m.group(0)))
+
+
+class ThingKind(BaseModel):
+    kind: str
+
+
+class BestFrame(BaseModel):
+    index: int  # 0-based index of the chosen image
+    reason: str
+
+
+class CropSuggestion(BaseModel):
+    crop_x: float  # left edge, fraction of source width (0..1)
+    crop_y: float  # top edge, fraction of source height (0..1)
+    crop_w: float  # width, fraction of source width (0..1)
+    crop_h: float  # height, fraction of source height (0..1)
+    reason: str
+
+
+def propose_crop(image_bytes: bytes, aspect: str, media_type: str = "image/jpeg") -> CropSuggestion:
+    """As a director, choose how to reframe this landscape frame into `aspect`
+    (e.g. '9:16'). Returns a crop rectangle in fractions of the source frame whose
+    own ratio matches the target aspect, positioned to keep the main subject well
+    composed (rule of thirds, headroom, don't cut off the subject).
+
+    The model reasons about *where the subject is*; we enforce the exact aspect
+    math afterward so the rect is always geometrically valid."""
+    w_ratio, h_ratio = (float(x) for x in aspect.split(":"))
+    target_ar = w_ratio / h_ratio
+    b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+    msg = (
+        f"This is a frame from a landscape video clip. I need to reframe it to a "
+        f"{aspect} ({'vertical' if target_ar < 1 else 'square' if target_ar == 1 else 'horizontal'}) "
+        f"crop for short-form social video. As the director, decide which region to "
+        f"keep so the main subject stays well composed — follow rule-of-thirds, keep "
+        f"headroom, and never cut the subject awkwardly. Return the crop as fractions "
+        f"of the frame (crop_x, crop_y = top-left corner; crop_w, crop_h = size, all "
+        f"0..1). Aim for the crop's width:height to be about {target_ar:.4f}. Briefly "
+        f"say what you framed for."
+    )
+    response = get_client().messages.parse(
+        model=MODEL,
+        max_tokens=600,
+        messages=[{"role": "user", "content": [
+            {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
+            {"type": "text", "text": msg},
+        ]}],
+        output_format=CropSuggestion,
+    )
+    out = response.parsed_output
+    return _normalize_crop(out, target_ar)
+
+
+def _normalize_crop(c: CropSuggestion, target_ar: float) -> CropSuggestion:
+    """Force the model's rough rect to exactly the target aspect and clamp it fully
+    inside the frame, keeping it centered on the model's chosen center point.
+
+    Source frame is normalized to a 1x1 box, but a crop of aspect target_ar in that
+    box must respect the *frame's own* aspect — since we work in fractions of W and H
+    independently, a rect with crop_w/crop_h (in fractions) maps to pixels
+    crop_w*W by crop_h*H. We don't know W:H here, so the caller passes frames whose
+    pixel aspect we correct at render time; here we simply keep the model's fractions
+    but clamp them into range. Exact aspect is enforced in the export filter's
+    cover-scale, so a slightly-off rect still yields a clean result."""
+    cx = min(max(c.crop_x, 0.0), 1.0)
+    cy = min(max(c.crop_y, 0.0), 1.0)
+    cw = min(max(c.crop_w, 0.05), 1.0)
+    ch = min(max(c.crop_h, 0.05), 1.0)
+    # keep the rect inside the frame
+    cx = min(cx, 1.0 - cw)
+    cy = min(cy, 1.0 - ch)
+    return CropSuggestion(crop_x=round(cx, 4), crop_y=round(cy, 4),
+                          crop_w=round(cw, 4), crop_h=round(ch, 4), reason=c.reason)
+
+
+def pick_best_frame(subject: str, images: list[bytes], media_type: str = "image/jpeg") -> BestFrame:
+    """Given several candidate frames that all contain `subject`, pick the single
+    most flattering / representative one. Returns the chosen 0-based index.
+
+    "Flattering" = the subject is clearly visible, well-lit, in focus, nicely framed
+    and prominent — the shot you'd choose to represent it. Falls back to index 0."""
+    if not images:
+        return BestFrame(index=0, reason="no candidates")
+    content: list[dict] = []
+    for i, img in enumerate(images):
+        content.append({"type": "text", "text": f"Image {i}:"})
+        content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": base64.standard_b64encode(img).decode("utf-8"),
+            },
+        })
+    content.append({"type": "text", "text": (
+        f'These images all contain "{subject}". Choose the single most flattering, '
+        "representative one to use as its cover thumbnail — the subject should be "
+        "clearly visible, well-lit, in focus, well-composed, and prominent in the frame. "
+        "Avoid blurry, dark, awkward, cropped, or cluttered shots. Return the 0-based "
+        "index of the best image and a brief reason."
+    )})
+    try:
+        response = get_client().messages.parse(
+            model=MODEL,
+            max_tokens=500,
+            messages=[{"role": "user", "content": content}],
+            output_format=BestFrame,
+        )
+        out = response.parsed_output
+        if 0 <= out.index < len(images):
+            return out
+        return BestFrame(index=0, reason="model index out of range; fell back to first")
+    except Exception as e:
+        return BestFrame(index=0, reason=f"selection failed: {e}")
+
+
+class InferredThing(BaseModel):
+    name: str          # concise subject name, e.g. "pipevine" or "swallowtail caterpillar"
+    kind: str          # plant | animal | person | action | object | other
+    description: str   # one short hint that helps spot it on screen
+
+
+class CampaignThings(BaseModel):
+    things: List[InferredThing]
+
+
+def infer_campaign_things(name: str, description: str = "") -> CampaignThings:
+    """From a campaign's name + description, infer the concrete subjects ('things')
+    worth watching for in footage — species, objects, actions, people, settings.
+    These seed the campaign's watchlist so indexing actively flags relevant clips."""
+    ctx = f"\n\nCampaign description:\n{description}" if description else ""
+    message = (
+        "A content creator is starting a video campaign. From its name and description, "
+        "list the concrete, visually-identifiable subjects worth watching for in their "
+        "footage — specific plants/species, animals, objects, recurring actions, people, "
+        "or distinctive settings. Prefer specific nameable subjects (e.g. 'pipevine', "
+        "'swallowtail caterpillar', 'seed planting') over vague themes (e.g. 'nature', "
+        "'growth'). Return 3-8 of them; skip anything too generic to spot in a frame.\n\n"
+        f"Campaign name: {name}{ctx}"
+    )
+    response = get_client().messages.parse(
+        model=MODEL,
+        max_tokens=1500,
+        messages=[{"role": "user", "content": message}],
+        output_format=CampaignThings,
+    )
+    return response.parsed_output
+
+
+def campaign_chat(
+    project: dict,
+    things: list[dict],
+    clips: list[dict],
+    history: list[dict],
+    user_message: str,
+) -> str:
+    """Answer a question / brainstorm about a specific campaign, grounded in its
+    description, watched things, and the clips currently in it. `history` is a list
+    of {role, content} turns (excluding the new user_message)."""
+    watch = _format_watchlist(things) if things else "(none yet)"
+    catalog = _format_clip_catalog(clips) if clips else "(no clips added to this campaign yet)"
+    system = (
+        "You are a creative producer assisting with ONE video campaign. Be concrete and "
+        "concise. Ground every suggestion in the campaign's actual footage when relevant, "
+        "referring to clips by their description. When footage is missing for an idea, say "
+        "what to shoot. Don't invent clips that aren't listed.\n\n"
+        f"Campaign: {project.get('name','')}\n"
+        f"About: {project.get('description','') or '(no description)'}\n\n"
+        f"Watched things for this campaign:\n{watch}\n\n"
+        f"Clips currently in this campaign:\n{catalog}"
+    )
+    messages = [{"role": m["role"], "content": m["content"]} for m in history]
+    messages.append({"role": "user", "content": user_message})
+    response = get_client().messages.create(
+        model=MODEL,
+        max_tokens=2000,
+        system=system,
+        messages=messages,
+    )
+    # Concatenate any text blocks in the reply.
+    return "".join(b.text for b in response.content if getattr(b, "type", None) == "text").strip()
+
+
+def classify_thing_kind(name: str, description: str = "") -> str:
+    """Infer the kind of a watched thing from its name (so the user doesn't have to
+    pick). Returns one of: plant, animal, person, action, object, other."""
+    hint = f" (context: {description})" if description else ""
+    message = (
+        f'Classify the subject "{name}"{hint} into exactly one of these kinds: '
+        "plant, animal, person, action, object, other. Return only the single word."
+    )
+    try:
+        response = get_client().messages.parse(
+            model=MODEL,
+            max_tokens=200,
+            messages=[{"role": "user", "content": message}],
+            output_format=ThingKind,
+        )
+        kind = (response.parsed_output.kind or "").strip().lower()
+        return kind if kind in {"plant", "animal", "person", "action", "object", "other"} else "other"
+    except Exception:
+        return "other"
+
+
+class ClipMatch(BaseModel):
+    clip_id: int
+    matched: List[str]
+
+
+class ClipMatches(BaseModel):
+    results: List[ClipMatch]
+
+
+def match_things_in_text(watchlist: list[dict], clips: list[dict]) -> dict[int, list[str]]:
+    """Given the watched things and a batch of clips (each with id + existing text
+    metadata), decide which things each clip contains -- using taxonomic/semantic
+    reasoning, so a 'swallowtail' matches 'butterfly' and 'Aristolochia' matches
+    'pipevine'. Returns {clip_id: [thing names]}."""
+    if not watchlist or not clips:
+        return {}
+
+    things_block = _format_watchlist(watchlist)
+    lines = []
+    for c in clips:
+        bits = [f"id={c['id']}"]
+        if c.get("description"):
+            bits.append(f"description=\"{c['description']}\"")
+        if c.get("category"):
+            bits.append(f"category=\"{c['category']}\"")
+        if c.get("tags"):
+            bits.append(f"tags=\"{c['tags']}\"")
+        if c.get("transcript"):
+            bits.append(f"transcript=\"{c['transcript'][:300]}\"")
+        lines.append("- " + " ".join(bits))
+    clips_block = "\n".join(lines)
+
+    message = (
+        "The user watches for these specific subjects in their footage library:\n"
+        f"{things_block}\n\n"
+        "Below is a batch of clips, each with an id and the text metadata already "
+        "known about it. For EACH clip, decide which of the watched subjects it "
+        "contains. Use taxonomic and semantic reasoning, not just literal word "
+        "matching: a more specific term counts as its general category — e.g. a "
+        "'swallowtail' or 'monarch' IS a butterfly; 'Aristolochia' or 'Dutchman's "
+        "pipe' IS pipevine; a 'bee' IS a pollinator. Only include a subject if the "
+        "clip clearly contains it. Return matches per clip using the bare subject "
+        "name exactly as written above. Omit clips with no matches.\n\n"
+        f"Clips:\n{clips_block}"
+    )
+    response = get_client().messages.parse(
+        model=MODEL,
+        max_tokens=8000,
+        thinking={"type": "adaptive"},
+        messages=[{"role": "user", "content": message}],
+        output_format=ClipMatches,
+    )
+    return {m.clip_id: m.matched for m in response.parsed_output.results if m.matched}
 
 
 def _format_clip_catalog(clips: list[dict]) -> str:
@@ -52,8 +470,21 @@ def _format_clip_catalog(clips: list[dict]) -> str:
             f"- id={c['id']} file={c['file_stem']} duration={c['duration_s']}s "
             f"category={c['category'] or ''} description=\"{c['description'] or ''}\""
         )
+        if c.get("context"):
+            line += f" context=\"{c['context']}\""
+        if c.get("tags"):
+            line += f" tags=\"{c['tags']}\""
         if c.get("transcript"):
             line += f" transcript=\"{c['transcript']}\""
+        # Technical quality (informational): resolution, sharpness, 0-100 score.
+        # The model may weigh these when the user asks (e.g. "prefer the sharpest,
+        # highest-res shots"), but should NOT exclude on quality unless told to.
+        if c.get("width") and c.get("height"):
+            line += f" resolution={c['width']}x{c['height']}"
+        if c.get("quality") is not None:
+            line += f" quality={c['quality']}/100"
+        if c.get("sharpness") is not None:
+            line += f" sharpness={c['sharpness']}"
         lines.append(line)
     return "\n".join(lines)
 
@@ -102,7 +533,20 @@ def suggest_content(clips: list[dict]) -> ContentSuggestions:
     return response.parsed_output
 
 
-def analyze_frame(image_bytes: bytes, media_type: str = "image/jpeg") -> VisualAnalysis:
+def _format_watchlist(watchlist: list[dict]) -> str:
+    lines = []
+    for t in watchlist:
+        kind = f" ({t['kind']})" if t.get("kind") else ""
+        hint = f" — {t['description']}" if t.get("description") else ""
+        lines.append(f"- {t['name']}{kind}{hint}")
+    return "\n".join(lines)
+
+
+def analyze_frame(
+    image_bytes: bytes,
+    media_type: str = "image/jpeg",
+    watchlist: list[dict] | None = None,
+) -> VisualAnalysis:
     image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
     message = (
         "This is a keyframe from a raw footage clip in a content library. Describe what's "
@@ -111,6 +555,16 @@ def analyze_frame(image_bytes: bytes, media_type: str = "image/jpeg") -> VisualA
         "existing-style label rather than inventing an overly specific one), and list a "
         "handful of specific tags (subjects, setting, notable visual details)."
     )
+    if watchlist:
+        message += (
+            "\n\nAdditionally, the user is specifically watching for these subjects. "
+            "Determine which (if any) are clearly visible in this frame. In "
+            "`matched_things`, return ONLY the bare name of each one that appears — the "
+            "text before the parenthesis, exactly as written, with no kind label or hint. "
+            "Only include one if you are confident it is present — do not guess. Leave the "
+            "list empty if none appear.\n"
+            f"{_format_watchlist(watchlist)}"
+        )
     response = get_client().messages.parse(
         model=MODEL,
         max_tokens=1024,

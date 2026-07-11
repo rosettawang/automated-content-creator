@@ -6,13 +6,47 @@ in a native window instead of requiring you to open a browser tab.
 Usage:
     MEDIA_DIR=/path/to/local/footage python3 editor/desktop.py
 """
+import socket
 import threading
 
 import webview
 
 from app import app, init_db
 
-PORT = 5001
+
+def _pick_port(preferred=5001):
+    """Grab a port for the local server. Prefer the familiar 5001, but if it's
+    already taken (a leftover server, another app on the machine), fall back to
+    any free port the OS hands us -- so the desktop app never fails to open, or
+    load blank, over a port clash."""
+    for candidate in (preferred, 0):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("127.0.0.1", candidate))
+                return s.getsockname()[1]
+            except OSError:
+                continue
+    raise RuntimeError("no free port available for the local server")
+
+
+PORT = _pick_port()
+
+
+class NativeApi:
+    """Bridge exposed to the page as `window.pywebview.api`. Only available in the
+    desktop app -- the browser has no `window.pywebview`, which is exactly how the
+    frontend decides whether to offer the "move files in" flow."""
+
+    def pick_files(self):
+        """Open a native file picker and return the chosen absolute paths.
+
+        Returns a list of path strings (empty if the user cancelled). These are
+        real on-disk paths, so the backend can move-and-delete originals -- which a
+        browser upload can never do."""
+        window = webview.active_window()
+        result = window.create_file_dialog(webview.OPEN_DIALOG, allow_multiple=True)
+        # pywebview returns a tuple/list of paths, or None on cancel.
+        return list(result) if result else []
 
 
 def run_flask():
@@ -23,9 +57,12 @@ def main():
     init_db()
     thread = threading.Thread(target=run_flask, daemon=True)
     thread.start()
-    webview.create_window("Editor", f"http://127.0.0.1:{PORT}", width=1280, height=800)
+    api = NativeApi()
+    # One window: the workspace shell hosts Editor / Clip Library / Campaigns as
+    # openable, resizable panels, so we no longer spawn a window per page.
     webview.create_window(
-        "Clip Library", f"http://127.0.0.1:{PORT}/library", width=1100, height=760
+        "Content Studio", f"http://127.0.0.1:{PORT}/workspace",
+        width=1500, height=920, js_api=api,
     )
     webview.start()
 

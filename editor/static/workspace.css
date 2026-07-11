@@ -1,0 +1,198 @@
+* { box-sizing: border-box; }
+
+html, body { height: 100%; margin: 0; }
+
+body {
+  font-family: -apple-system, sans-serif;
+  background: #161616;
+  color: #eee;
+  overflow: hidden;
+}
+
+#workspace {
+  display: flex;
+  height: 100vh;
+}
+
+/* ---- left icon rail (app switcher) ---- */
+#rail {
+  flex: 0 0 64px;
+  background: #0f0f0f;
+  border-right: 1px solid #2a2a2a;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0.5rem 0;
+  gap: 0.25rem;
+}
+
+.rail-btn {
+  background: none;
+  border: none;
+  color: #9a9a9a;
+  cursor: pointer;
+  padding: 0.6rem 0.2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  border-left: 3px solid transparent;
+}
+
+.rail-btn:hover { background: #1c1c1c; color: #ddd; }
+.rail-btn.active {
+  color: #fff;
+  border-left-color: #4a9a5a;
+  background: #17211a;
+}
+
+.rail-icon { font-size: 1.3rem; line-height: 1; }
+.rail-label { font-size: 0.62rem; letter-spacing: 0.02em; }
+
+/* ---- panes ---- */
+#panes {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.pane {
+  flex-grow: 1;
+  flex-basis: 0;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #2a2a2a;
+  overflow: hidden;
+  transition: box-shadow 0.3s;
+}
+
+.pane.flash { box-shadow: inset 0 0 0 2px #4a9a5a; }
+
+.pane-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0.6rem;
+  background: #1b1b1b;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.pane-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #ddd;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.pane-icon { font-size: 0.95rem; }
+/* Push the title to take remaining width so the gear + close group on the right. */
+.pane-title { margin-right: auto; }
+
+.pane-export {
+  background: none;
+  border: none;
+  color: #9fbf9f;
+  cursor: pointer;
+  padding: 0 0.3rem;
+  display: inline-flex;
+  align-items: center;
+}
+.pane-export:hover { color: #7fd08c; }
+
+.pane-gear {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.3rem;
+}
+.pane-gear:hover { color: #cfe; }
+
+.pane-close {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.3rem;
+}
+.pane-close:hover { color: #e08080; }
+
+.pane-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #1e1e1e;
+}
+
+/* ---- resizer handle between panes ---- */
+.resizer {
+  flex: 0 0 6px;
+  cursor: col-resize;
+  background: #222;
+  position: relative;
+}
+.resizer:hover, body.resizing .resizer { background: #3a5c3a; }
+.resizer::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 28px;
+  background: #555;
+  border-radius: 2px;
+}
+
+/* While dragging, stop iframes from capturing the mouse. */
+body.resizing { cursor: col-resize; }
+body.resizing .pane-frame { pointer-events: none; }
+
+/* ---- cross-panel drag (Library card → Editor timeline) ---- */
+/* Transparent full-window layer so mousemove/up reach the shell during a drag,
+   instead of whichever iframe is under the cursor. */
+.drag-shield {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  cursor: grabbing;
+}
+.drag-shield.over { cursor: copy; }
+
+.shell-drag-ghost {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  background: #3a5c3a;
+  color: #fff;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid #4a6a4a;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+  max-width: 240px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ---- empty state ---- */
+#panes-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  color: #ccc;
+}
+#panes-empty.hidden { display: none; }
+#panes-empty .muted { color: #777; font-size: 0.85rem; }

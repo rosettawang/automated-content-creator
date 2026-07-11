@@ -5,5 +5,17 @@ openai-whisper
 anthropic
 pydantic
 gdown
+requests
 composio
 python-dotenv
+httpx
+mcp
+# Face recognition (on-device, wheels-only on arm64 — no cmake/compile needed)
+facenet-pytorch
+torch
+torchvision
+pillow
+# On-device action recognition (X-CLIP). Pinned <4.50 to stay compatible with torch 2.2.
+transformers==4.46.3
+# On-device image understanding (CLIP zero-shot) for watchlist detection + category.
+open_clip_torch

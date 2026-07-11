@@ -4,6 +4,8 @@
 .~lock.*#
 # Temporary video working area (pulled clips are disposable)
 _video_temp/
+# Local footage library (MEDIA_DIR) — imported/pulled clips, large & disposable
+media/
 # Rendered / source media — large binaries, keep edit specs not the video
 clips_out/*.mp4
 clips_out/*.mov
@@ -18,3 +20,10 @@ __pycache__/
 editor/venv/
 # API keys (Composio, Anthropic, etc.) -- never commit secrets
 editor/.env
+# Generated caches (regenerable from source media) -- not source
+editor/data/thumbs/
+editor/data/faces/
+# Python build artifact
+editor/content_creator.egg-info/
+# Per-user local Claude Code settings (permissions etc.); keep launch.json shared
+.claude/settings.local.json

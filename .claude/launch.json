@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "editor",
+      "runtimeExecutable": "/Users/rosettawang/Documents/Claude/Projects/automated-content-creator/editor/venv/bin/python",
+      "runtimeArgs": ["editor/app.py"],
+      "port": 5001,
+      "autoPort": true
+    }
+  ]
+}

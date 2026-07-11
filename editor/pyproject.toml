@@ -1,0 +1,36 @@
+[project]
+name = "content-creator"
+version = "0.1.0"
+description = "Local video editor + clip library with a Claude MCP server"
+requires-python = ">=3.11"
+
+# Everything the app and the MCP server need. `pip install -e .` pulls these in,
+# replacing the manual `pip install -r requirements.txt` step.
+dependencies = [
+    "flask",
+    "openpyxl",
+    "pywebview",
+    "openai-whisper",
+    "anthropic",
+    "pydantic",
+    "gdown",
+    "requests",
+    "composio",
+    "python-dotenv",
+    "httpx",
+    "mcp",
+]
+
+# Console command that launches the MCP server. Because the package is installed
+# editable (`-e`), this resolves back to editor/mcp_server.py in the repo, so its
+# sibling app.py (used for auto-start) is still found.
+[project.scripts]
+content-creator-mcp = "mcp_server:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+# Flat layout: these live directly in editor/, not in a nested package dir.
+[tool.setuptools]
+py-modules = ["mcp_server"]
