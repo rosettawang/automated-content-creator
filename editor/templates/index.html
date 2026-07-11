@@ -187,8 +187,8 @@
     </form>
   </div>
 
-  <script src="/static/app.js"></script>
-  <script src="/static/chat.js"></script>
-  <script src="/static/crop.js"></script>
+  <!-- app.js + chat/crop, concatenated in one IIFE-scoped bundle (per-panel
+       isolation for the unified document; they share scope internally). -->
+  <script src="/bundle/editor.js"></script>
 </body>
 </html>

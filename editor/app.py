@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
-from flask import Flask, jsonify, request, send_file, render_template
+from flask import Flask, jsonify, request, send_file, render_template, Response
 
 from db import get_conn, init_db, stamp_file_metadata, exiftool_available
 from claude_client import (
@@ -1200,6 +1200,35 @@ def library():
 @app.get("/projects")
 def projects_page():
     return render_template("projects.html")
+
+
+# Each panel's scripts share globals on purpose (siblings read the main script's
+# top-level names). To isolate a panel from OTHER panels in one document without
+# breaking that intra-panel sharing, serve the panel's whole script set as a single
+# bundle wrapped in one IIFE — one shared scope per panel, invisible to others.
+# Files are concatenated in load order (same order as the old <script> tags).
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+PANEL_BUNDLES = {
+    "editor": ["app.js", "chat.js", "crop.js"],
+    "library": ["library.js", "map.js", "things.js", "faces.js", "motion.js"],
+    "campaigns": ["projects.js"],
+}
+
+
+@app.get("/bundle/<panel>.js")
+def panel_bundle(panel):
+    files = PANEL_BUNDLES.get(panel)
+    if not files:
+        return {"error": "unknown bundle"}, 404
+    parts = []
+    for name in files:
+        path = STATIC_DIR / name
+        parts.append(f"// ===== {name} =====\n{path.read_text()}")
+    body = "(function () {\n" + "\n".join(parts) + "\n})();\n"
+    # no-cache so edits during dev show up without a hard refresh
+    resp = Response(body, mimetype="application/javascript")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.get("/api/clips/<int:clip_id>/thumbnail")
