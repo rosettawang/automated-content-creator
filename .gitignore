@@ -27,3 +27,5 @@ editor/data/faces/
 editor/content_creator.egg-info/
 # Per-user local Claude Code settings (permissions etc.); keep launch.json shared
 .claude/settings.local.json
+# local DB safety backups
+editor/data/*.bak-*
