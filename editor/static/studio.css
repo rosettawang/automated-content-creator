@@ -1,6 +1,6 @@
-/* Unified single-document workspace: Library + Editor as real sections of ONE
-   page (no iframes). Loaded LAST so its body/layout rules win over the two panels'
-   full-page stylesheets, which each still assume they own the document. */
+/* Unified single-document workspace: Library + Editor + Campaigns as real sections
+   of ONE page (no iframes). Loaded LAST so its body/layout rules win over the three
+   panels' full-page stylesheets, which each still assume they own the document. */
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body {
@@ -13,17 +13,59 @@ body {
 
 #studio { display: flex; width: 100%; height: 100vh; min-height: 0; }
 
+/* ---- left rail: app switcher ---- */
+#rail {
+  flex: 0 0 auto;
+  width: 62px;
+  background: #161616;
+  border-right: 1px solid #000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem 0.3rem;
+}
+.rail-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #bbb;
+  font-size: 0.6rem;
+  padding: 0.5rem 0.2rem;
+  cursor: pointer;
+}
+.rail-btn:hover { background: #242424; }
+.rail-btn.active { background: #2f4a2f; color: #fff; border-color: #3f5a3f; }
+.rail-icon { font-size: 1.1rem; line-height: 1; }
+
+/* ---- panes row ---- */
+#studio-panes { flex: 1 1 auto; display: flex; min-width: 0; height: 100vh; }
+
 .studio-pane {
   height: 100vh;
   min-width: 0;               /* let flex children shrink instead of overflowing */
   overflow: hidden;
-  border-right: 1px solid #000;
+  flex: 1 1 0;
 }
-.studio-pane:last-child { border-right: none; }
+.studio-pane.hidden { display: none; }
 
-/* Library: a scrolling column (its header is sticky within). */
-.pane-library { flex: 1 1 0; overflow-y: auto; }
+/* Library / Campaigns: scrolling columns (their headers are sticky within). */
+.studio-pane[data-panel="library"],
+.studio-pane[data-panel="campaigns"] { overflow-y: auto; }
 
 /* Editor: a full-height flex column so #stage (flex:1) and the timeline lay out,
    exactly as they did when <body> was their column parent standalone. */
-.pane-editor { flex: 1.4 1 0; display: flex; flex-direction: column; }
+.studio-pane[data-panel="editor"] { display: flex; flex-direction: column; flex: 1.4 1 0; }
+
+/* ---- resizers between open panes ---- */
+.studio-resizer {
+  flex: 0 0 6px;
+  cursor: col-resize;
+  background: #000;
+  position: relative;
+}
+.studio-resizer:hover, .studio-resizer.dragging { background: #3a5c3a; }
+body.studio-resizing { cursor: col-resize; user-select: none; }

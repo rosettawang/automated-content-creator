@@ -23,7 +23,7 @@ async function loadProjects() {
 function render() {
   const grid = document.getElementById("projects-grid");
   grid.innerHTML = "";
-  document.getElementById("count").textContent =
+  document.getElementById("cmp-count").textContent =
     `${allProjects.length} campaign${allProjects.length === 1 ? "" : "s"}`;
   document.getElementById("empty").classList.toggle("hidden", allProjects.length > 0);
 
@@ -195,7 +195,7 @@ document.addEventListener("keydown", (e) => {
 
 // ---- things ----
 async function loadThings() {
-  const list = document.getElementById("things-list");
+  const list = document.getElementById("cmp-things-list");
   list.innerHTML = "<li class='muted'>Loading…</li>";
   const res = await fetch(`/api/projects/${drawerProject.id}/things`);
   const things = await res.json();
@@ -203,7 +203,7 @@ async function loadThings() {
 }
 
 function renderThings(things) {
-  const list = document.getElementById("things-list");
+  const list = document.getElementById("cmp-things-list");
   list.innerHTML = "";
   if (!things.length) {
     list.innerHTML = "<li class='muted'>No things yet — add ones to watch for.</li>";
@@ -259,7 +259,7 @@ async function editThing(t) {
   loadThings();
 }
 
-document.getElementById("thing-add-form").addEventListener("submit", async (e) => {
+document.getElementById("cmp-thing-add-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const input = document.getElementById("thing-add-name");
   const name = input.value.trim();
@@ -299,10 +299,10 @@ function appendChat(role, content) {
   return div;
 }
 
-document.getElementById("chat-form").addEventListener("submit", async (e) => {
+document.getElementById("cmp-chat-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const input = document.getElementById("chat-input");
-  const sendBtn = document.getElementById("chat-send");
+  const input = document.getElementById("cmp-chat-input");
+  const sendBtn = document.getElementById("cmp-chat-send");
   const message = input.value.trim();
   if (!message) return;
   input.value = "";

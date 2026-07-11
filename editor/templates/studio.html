@@ -9,24 +9,43 @@
   <!-- Panel stylesheets first, unified layout last so it wins on body/reset. -->
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/library.css">
+  <link rel="stylesheet" href="/static/projects.css">
   <link rel="stylesheet" href="/static/studio.css">
 </head>
 <body>
   <div id="studio">
-    <section class="studio-pane pane-library">
-      {% include "_library_panel.html" %}
-    </section>
-    <section class="studio-pane pane-editor">
-      {% include "_editor_panel.html" %}
-    </section>
+    <nav id="rail">
+      <button class="rail-btn" data-panel="library" title="Clip Library">
+        <span class="rail-icon">🎞️</span><span class="rail-label">Library</span>
+      </button>
+      <button class="rail-btn" data-panel="editor" title="Editor">
+        <span class="rail-icon">🎬</span><span class="rail-label">Editor</span>
+      </button>
+      <button class="rail-btn" data-panel="campaigns" title="Campaigns">
+        <span class="rail-icon">📁</span><span class="rail-label">Campaigns</span>
+      </button>
+    </nav>
+
+    <div id="studio-panes">
+      <section class="studio-pane" data-panel="library">
+        {% include "_library_panel.html" %}
+      </section>
+      <section class="studio-pane" data-panel="editor">
+        {% include "_editor_panel.html" %}
+      </section>
+      <section class="studio-pane" data-panel="campaigns">
+        {% include "_campaigns_panel.html" %}
+      </section>
+    </div>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
-  <!-- Two isolated per-panel bundles in one document (each its own IIFE scope). -->
+  <!-- Three isolated per-panel bundles in one document (each its own IIFE scope). -->
   <script src="/bundle/library.js"></script>
   <script src="/bundle/editor.js"></script>
-  <!-- unified-doc glue: cross-panel drag (Library card → Editor timeline) -->
+  <script src="/bundle/campaigns.js"></script>
+  <!-- unified-doc shell: rail open/close/resize + cross-panel drag -->
   <script src="/static/studio.js"></script>
 </body>
 </html>
