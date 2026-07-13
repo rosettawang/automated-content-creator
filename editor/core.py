@@ -92,45 +92,14 @@ from composio_wrapper import list_toolkit_actions, initiate_connection, execute_
 import semantic
 
 
-MEDIA_DIR_RAW = os.environ.get("MEDIA_DIR", "").strip()
-
-
-MEDIA_DIR = Path(MEDIA_DIR_RAW).expanduser() if MEDIA_DIR_RAW else None
-
-
-ON_DEVICE_VISION_DEFAULT = os.environ.get("ON_DEVICE_VISION", "1") != "0"
-
-
-VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
-
-
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".gif", ".tiff", ".webp"}
-
-
-MEDIA_EXTS = VIDEO_EXTS | IMAGE_EXTS
-
-
-def classify_kind(path: Path) -> str:
-    """'photo' for image files, 'video' otherwise (by file extension)."""
-    return "photo" if path.suffix.lower() in IMAGE_EXTS else "video"
-
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-
-
-CLIPS_OUT = REPO_ROOT / "clips_out"
-
-
-REFERENCE_FRAMES = REPO_ROOT / "reference_frames"
-
-
-THUMB_CACHE = Path(__file__).resolve().parent / "data" / "thumbs"
-
-
-FACES_DIR = Path(__file__).resolve().parent / "data" / "faces"
-
-
-PROXY_CACHE = Path(__file__).resolve().parent / "data" / "proxies"
+# Shared config/paths/constants live in config (the leaf module). Re-exported so
+# `from core import *` in the blueprints keeps seeing these names unchanged.
+from config import *  # noqa: F401,F403
+from config import (
+    MEDIA_DIR_RAW, MEDIA_DIR, ON_DEVICE_VISION_DEFAULT,
+    VIDEO_EXTS, IMAGE_EXTS, MEDIA_EXTS, classify_kind,
+    REPO_ROOT, CLIPS_OUT, REFERENCE_FRAMES, THUMB_CACHE, FACES_DIR, PROXY_CACHE,
+)
 
 
 def _no_cache_static(resp):
