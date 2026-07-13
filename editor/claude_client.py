@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from anthropic import Anthropic
 from pydantic import BaseModel
@@ -25,14 +25,32 @@ class ClipSelection(BaseModel):
     reason: str
 
 
+# Output aspect the model may infer from the request wording. None = the request
+# didn't specify a frame, so the caller keeps whatever's already set / 'source'.
+AspectHint = Optional[Literal["source", "9:16", "4:5", "1:1", "16:9"]]
+
+# Shared instruction appended to generation/edit prompts so the model fills `aspect`
+# from wording (kept in one place so both prompts stay consistent).
+_ASPECT_INSTRUCTION = (
+    "Also set `aspect` (the output frame) from the request wording: "
+    '"vertical"/"Reels"/"TikTok"/"Story"/"9:16" -> "9:16"; '
+    '"square"/"1:1" -> "1:1"; "portrait feed"/"4:5" -> "4:5"; '
+    '"landscape"/"widescreen"/"YouTube"/"16:9" -> "16:9". '
+    "If the request doesn't mention a frame or orientation, set aspect to null "
+    "(do NOT guess). Only use one of those exact values or null."
+)
+
+
 class RoughCutPlan(BaseModel):
     concept: str
     selections: List[ClipSelection]
+    aspect: AspectHint = None         # inferred output frame, or null when unstated
 
 
 class EditChatResult(BaseModel):
     reply: str                        # short, conversational summary of what changed
     selections: List[ClipSelection]   # the COMPLETE new timeline, in play order
+    aspect: AspectHint = None         # set only when the instruction asks to reframe (e.g. "make it square")
 
 
 def _format_timeline(items: list[dict]) -> str:
@@ -65,6 +83,10 @@ def revise_edit(instruction: str, current_timeline: list[dict], clips: list[dict
         "around the best-matching moment rather than defaulting to the start of the "
         "clip. Also give a short, friendly one- or two-sentence reply describing "
         "what you changed.\n\n"
+        + _ASPECT_INSTRUCTION
+        + " Here, set aspect ONLY when the instruction asks to reframe (e.g. \"make it "
+        "square\", \"turn this vertical\"); otherwise null. When you do change it, say "
+        "so in your reply.\n\n"
         f"CURRENT TIMELINE (in order):\n{current}\n\n"
         f"CLIP CATALOG (available to pull from):\n{catalog}\n\n"
         f"USER INSTRUCTION: {instruction}"
@@ -562,6 +584,7 @@ def generate_rough_cut(prompt: str, clips: list[dict]) -> RoughCutPlan:
         "For clips without moments, still pick a plausible window (e.g. skip a shaky "
         "first second on long handheld clips). Vary shot lengths to fit the content "
         "instead of giving every clip an identical duration.\n\n"
+        + _ASPECT_INSTRUCTION + "\n\n"
         f"Clip catalog:\n{catalog}\n\n"
         f"Requested video: {prompt}"
     )

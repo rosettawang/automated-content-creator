@@ -13,9 +13,10 @@ A lightweight pipeline that turns a raw media library into short-form social cli
 
 ## Repo contents
 - `content_intake_log.xlsx` — the footage index (Intake Log + Video Index tabs)
-- `media-pipeline.md` — pipeline design & decisions
-- `video-editor-plan.md` — plan for the prompt-driven editor app + metadata architecture
-- `editor/` — the rudimentary editor app (see below)
+- `ROADMAP.md` — priorities and status; `CLAUDE.md` — repo conventions (incl. doc policy)
+- `specs/` — one spec per unbuilt feature (deleted when shipped)
+- `docs/archive/` — frozen historical docs (original pipeline/editor plans, review logs)
+- `editor/` — the editor app (see below)
 - `scripts/tag_metadata.py` — stamps descriptions from the xlsx into each file's EXIF/XMP metadata
 - `reel_ideas.md` — short-form clip concepts
 - `clips_out/` — edit specs (FCPXML timeline + README); rendered video is gitignored
@@ -60,7 +61,7 @@ query strings (`/?edit=<id>`, `/?campaign=<id>`).
   Keyboard: **Space** = play/pause, **Del** = remove the selected clip, **←/→** = nudge the playhead.
 
 `MEDIA_DIR` should point at wherever you've temporarily pulled the actual clips (see "Storage
-during editing" in `video-editor-plan.md`) — clips without a matching local file still show up
+during editing" in `docs/archive/video-editor-plan.md`) — clips without a matching local file still show up
 in the library (marked "not local") but can't be previewed, transcribed, or exported until
 they're pulled down.
 
@@ -109,6 +110,24 @@ with blank metadata (e.g. via Drive import) rather than through the original xls
 Re-run `migrate_xlsx.py` any time the xlsx changes — it's a safe upsert by filename and
 won't touch existing projects/timelines/transcripts. `editor/data/editor.db` holds your actual
 project/timeline work, so unlike the rest of this repo's temp/local media, it's committed to git.
+
+## Tests
+
+An API safety-net suite runs against the Flask test client — **the app does not need to be
+running**. From the repo root:
+
+```
+./run_tests.sh
+```
+
+~21 pytest cases (~1s) cover clips list/search, media serving (`.MOV` → `video/mp4`, Range,
+missing → 404), edit CRUD + chat/undo, generation and export (with the Anthropic client
+mocked and tiny ffmpeg-generated fixture clips), job reconciliation, and xlsx import. Nothing
+is committed as a test binary; fixtures are generated on the fly and never touch your real
+`media/` folder.
+
+First-time setup installs pytest: `editor/venv/bin/python -m pip install -e editor[test]`
+(or just `pip install pytest`). **Convention: no commit without `./run_tests.sh` passing.**
 
 ## Claude MCP server
 

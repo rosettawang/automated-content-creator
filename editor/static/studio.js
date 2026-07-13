@@ -65,6 +65,24 @@
     btn.addEventListener("click", () => toggle(btn.dataset.panel));
   });
 
+  // Ensure a panel is open (used cross-panel, e.g. Campaigns → open Editor on a Cut).
+  window.studioOpenPanel = (key) => {
+    if (!PANEL_ORDER.includes(key) || layout.open.includes(key)) return;
+    layout.open = PANEL_ORDER.filter((k) => k === key || layout.open.includes(k));
+    saveLayout();
+    render();
+  };
+
+  // Open an edit in-place: reveal the Editor pane and load the edit there, instead
+  // of navigating away from /studio. Callers (Cuts lists) fall back to a link when
+  // this helper is absent (i.e. on a standalone page).
+  window.studioOpenEdit = (editId) => {
+    window.studioOpenPanel("editor");
+    if (window.studioEditor && window.studioEditor.openEdit) {
+      window.studioEditor.openEdit(editId);
+    }
+  };
+
   // ---- resize between two adjacent panes ----
   function startResize(e, leftKey, rightKey) {
     e.preventDefault();

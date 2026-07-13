@@ -762,28 +762,6 @@ def _ensure_thing_thumbs_table() -> None:
 _ensure_thing_thumbs_table()
 
 
-def _ensure_clip_regions_table() -> None:
-    conn = get_conn()
-    try:
-        conn.execute(
-            """CREATE TABLE IF NOT EXISTS clip_regions (
-                   id INTEGER PRIMARY KEY AUTOINCREMENT,
-                   clip_id INTEGER NOT NULL REFERENCES clips(id) ON DELETE CASCADE,
-                   thing_id INTEGER REFERENCES things(id) ON DELETE SET NULL,
-                   label TEXT,
-                   x REAL, y REAL, w REAL, h REAL,
-                   detected_at TEXT DEFAULT CURRENT_TIMESTAMP
-               )"""
-        )
-        conn.execute("CREATE INDEX IF NOT EXISTS ix_clip_regions_clip ON clip_regions(clip_id)")
-        conn.commit()
-    finally:
-        conn.close()
-
-
-_ensure_clip_regions_table()
-
-
 def _clamp01(v: float) -> float:
     try:
         return max(0.0, min(1.0, float(v)))

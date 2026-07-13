@@ -1,3 +1,5 @@
+> **ARCHIVED — historical snapshot. Do not update.** Accurate as of its writing; superseded by the codebase, `README.md`, and `ROADMAP.md`.
+
 # App Review — Functionality & Architecture Notes
 
 *Test session: 2026-07-12, app live at 127.0.0.1:5001, driven via Chrome. Test prompt: "a 15s vertical reel of the pipevine swallowtail lifecycle — caterpillar to butterfly — ending on a wide garden shot" (edit #18).*
@@ -5,7 +7,7 @@
 ## What happened, end to end
 
 1. **Library → Assemble**: prompt accepted, rough cut generated in ~15s. Clip selection quality was genuinely good — host plant → caterpillar → macro caterpillar → adult swallowtail → wide meadow, exactly the requested arc, 5 clips × 3.0s = 15s.
-2. **Fatal catch**: all 5 chosen clips were *not local* (only 36 of 118 clips exist in `MEDIA_DIR`). The timeline looked normal, the play button toggled to pause, but the playhead sat at 0:00 forever, the program monitor stayed black, and nothing told me why. Export would have 404'd.
+2. **Fatal catch**: all 5 chosen clips were *not local* (at test time only 36 of 118 clips existed in `MEDIA_DIR`; the 82 non-local rows have since been pruned — the DB is now 36 local clips). The timeline looked normal, the play button toggled to pause, but the playhead sat at 0:00 forever, the program monitor stayed black, and nothing told me why. Export would have 404'd.
 3. **Edit chat recovery**: "replace every clip that isn't downloaded locally…" worked — Claude swapped in 3 local clips and kept 15s. But it inferred locality from description text; the catalog it sees has no availability field (see Flaw 1). The result was on-format but **off-topic** (forest b-roll instead of swallowtails), because none of the topical footage is local.
 4. **Export**: worked. `clips_out/A_tight_15s_…mp4`, 1080×1920, 15.03s, h264+aac. So the whole loop *can* run — but the produced video matches the request in duration/format only, not content.
 
@@ -13,6 +15,8 @@
 
 ### 1. The AI can't see clip availability — the core flow breaks on it
 `claude_client.py:_format_clip_catalog()` sends id/file/duration/category/description/context/tags/transcript/resolution/quality — **not `available_locally`**, even though `/api/clips` returns that field. So `generate_rough_cut` happily builds timelines from clips that can't be previewed, transcribed, or exported. With 82/118 clips non-local, most prompts will produce broken cuts. This is the single highest-impact fix.
+
+> **STATUS (2026-07-13): resolved, and the underlying data is gone.** The 82 metadata-only "ghost" clips have been pruned — the live DB now holds **36 clips, all local, all `media_status = present`**, matching the decision to drop non-local entries and re-upload from scratch. The figures above ("82/118", "most prompts will produce broken cuts") describe the DB at test time and no longer reflect reality. The catalog/pool fixes below (P0.1) stay in as defense-in-depth so a future stray import or upload-in-progress can't reintroduce a broken cut. **One residue remains outside the DB:** `content_intake_log.xlsx` still lists all ~118, and `migrate_xlsx.py` is an upsert-by-filename — re-running it would re-insert the 82 non-local rows. Trim/archive the xlsx (or scope the migrate to local files) to prevent resurrection.
 
 ### 2. Failures are silent
 - Non-local clips on the timeline get no badge; playback failure produces no message (play toggles to pause, playhead frozen at 0:00).
@@ -127,7 +131,7 @@ Checked against the current working tree (a parallel dev session has been landin
 
 **P0 — make the promise real**
 
-- ✅ P0.1 Availability in the AI catalog — done, stricter than proposed: `_pool_for_generation` only offers downloaded clips; catalog flags stragglers; empty pool errors clearly; timeline items report `available_locally`; non-local badges + guards throughout the UI.
+- ✅ P0.1 Availability in the AI catalog — done, stricter than proposed: `_pool_for_generation` only offers downloaded clips; catalog flags stragglers; empty pool errors clearly; timeline items report `available_locally`; non-local badges + guards throughout the UI. **Underlying data also cleared (2026-07-13):** the 82 non-local rows are pruned — DB is now 36 clips, all local. **Residue:** `content_intake_log.xlsx` still lists ~118 and `migrate_xlsx.py` upserts by filename, so re-running it resurrects the ghosts — trim/scope the xlsx to prevent that.
 - ⬜ P0.2 Remux imports to faststart .mp4 / serve `video/mp4` — not done. `.MOV` still ships as `video/quicktime`; UI error handlers and the 8s stall watchdog mitigate the symptom, not the cause.
 - 🟡 P0.3 Aspect handling — partial: `aspect` is now stored on the edit at generation time and export reframes to it; still not inferred from prompt wording ("vertical" in prose doesn't set it).
 - ✅ P0.4 Async export — done: export runs as a background job (`_run_export_job`).
@@ -146,7 +150,7 @@ Checked against the current working tree (a parallel dev session has been landin
 - ⬜ P2.8 "Local only" library filter; placeholder thumbnails.
 - ⬜ P2.11 Data hygiene (CORRECTION-notes in descriptions; photos mixed into the video pool).
 
-**Designed, not yet built — provenance / re-download.** The `clips` table has no source pointer; the Drive importer knows each URL at download time and discards it, so a missing file can't be re-fetched. Plan: add `source_kind` + `source_url` columns written at import; backfill existing clips (album-level is fine); turn the "⚠ not local" badge into a **Re-download** button (`POST /api/clips/<id>/pull` → existing drive/photos import machinery → flips availability → `clip-updated` broadcast refreshes all panels). Caveats: Drive links re-fetch cleanly per file; Google Photos album links lack stable per-file URLs, so Photos re-download means re-running the album import and matching by filename/`content_hash`. Also stamp `source_url` into XMP on embed so provenance travels with the file.
+**Provenance / re-download — BUILT (2026-07-13).** Implemented and verified live; survived the blueprint split (now in `blueprints/media.py`). `clips` has `source_kind` + `source_url`, written at import (Drive stores the link, Photos stores the album URL and remembers albums in `settings`); zip/local/upload tagged by kind. Existing rows backfilled to `photos` (seed library's origin) with the two album URLs seeded from `content_intake_log.xlsx`. `GET /api/clips` and `/api/edits/<id>` expose `can_redownload`; the "⚠ not local" badge on the timeline and the library info panel show a **Re-download** button → `POST /api/clips/<id>/pull` reuses the drive/photos import jobs and relinks by filename/`content_hash`, then `clip-updated` refreshes panels. Verified: columns + backfill applied, `can_redownload` correct (photos+album→true, zip→false), `/pull` returns "already present" for local clips and a clear 400 for sourceless ones (no job started either way), both buttons render. **Still open:** Drive re-fetch is exact per-file, but Google Photos has no stable per-file URL, so a Photos re-download re-runs the whole album and relinks by filename — heavier than ideal. Not yet done: stamping `source_url` into XMP on embed so provenance travels with the file.
 
 ## Second test session (2026-07-13) — full re-run, new assessment
 
@@ -167,7 +171,7 @@ Checked against the current working tree (a parallel dev session has been landin
 - "vertical" in the prompt still doesn't set `aspect` — the model should return it with the plan; today you must know about the settings gear.
 - The settings popover renders partially off-screen (clipped at the window's left edge).
 - Generated cuts still default to "(Unassigned)" unless a campaign is pre-selected; the Cuts tab makes this survivable but auto-suggesting a campaign would be better.
-- Provenance / re-download (`source_url` + pull button) — designed above, still unbuilt; there's now a "Verify / relink" tool for local files, which is adjacent but not the same thing.
+- Provenance / re-download (`source_url` + pull button) — **now built** (see the BUILT note above); the "Verify / relink" tool remains for local files that merely moved on disk. Remaining sub-item: stamp `source_url` into XMP on embed.
 - `core.py` is a new 2,475-line gravity well; worth splitting before it recreates the old problem.
 - Data hygiene items from round 1 still stand (CORRECTION-notes in descriptions, photos mixed into the video pool).
 

@@ -84,6 +84,38 @@ function goLiveWithBuffer(thenPlay) {
   preloadNext(activeSeg);
 }
 
+// Persistent media-error / stall surfacing. prepareOn's listeners are one-shot and
+// only cover the initial load; without these, an error AFTER a clip has loaded (a
+// mid-play decode failure, a network drop, a swapped-in buffer that went bad) — or a
+// buffer underrun — would never surface. These stay attached for the elements' life.
+function _mediaErrorText(el) {
+  const seg = segments[activeSeg];
+  const name = seg && seg.item ? seg.item.file_stem : "clip";
+  const code = el.error && el.error.code;
+  const why = code === 3 ? "the file couldn't be decoded (unsupported codec or container)"
+            : code === 2 ? "a network error interrupted it"
+            : code === 4 ? "its media is missing or unsupported"
+            : "a media error occurred";
+  return `Playback error on "${name}" — ${why}. Try Verify media, or swap the clip.`;
+}
+[_videoA, _videoB].forEach((el) => {
+  el.addEventListener("error", () => {
+    // Initial-load errors are handled by prepareOn's cb (loadingSeg is true then);
+    // this catches errors on the ACTIVE element after it had loaded fine.
+    if (el !== programVideo || loadingSeg) return;
+    pause();
+    showProgramMessage(_mediaErrorText(el));
+  });
+  // A buffer underrun mid-playback: tell the user we're waiting, non-fatally.
+  const onStall = () => {
+    if (el === programVideo && playing && !loadingSeg) showProgramMessage("Buffering…");
+  };
+  el.addEventListener("stalled", onStall);
+  el.addEventListener("waiting", onStall);
+  // Recovered — clear the transient buffering note.
+  el.addEventListener("playing", () => { if (el === programVideo) showProgramMessage(""); });
+});
+
 // ---------- api ----------
 async function api(path, options = {}) {
   const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
@@ -210,6 +242,16 @@ window.studioEditor = {
     const res = await placeClipOnTimeline(clip, localX);
     if (!res.ok) alert(res.msg);
     return res;
+  },
+  // Open a specific edit in-place (Campaigns "Cuts" list → Editor), without
+  // navigating away from the unified /studio document.
+  openEdit: async (editId) => {
+    try {
+      const edit = await api(`/api/edits/${editId}`);
+      currentCampaignId = edit.project_id != null ? String(edit.project_id) : "";
+      currentEditId = String(editId);
+      await loadCampaigns();   // syncs campaign selector, then loadEdits() keeps currentEditId → loads it
+    } catch (_) { /* ignore */ }
   },
 };
 
@@ -377,6 +419,12 @@ async function loadEdits() {
   }
 }
 
+// Friendly labels for the Frame gear + inferred-framing toasts.
+const ASPECT_LABELS = {
+  "9:16": "9:16 vertical", "4:5": "4:5 portrait", "1:1": "1:1 square",
+  "16:9": "16:9 landscape", "source": "Source (no reframe)",
+};
+
 async function loadTimeline() {
   if (!currentEditId) return;
   const edit = await api(`/api/edits/${currentEditId}`);
@@ -386,6 +434,20 @@ async function loadTimeline() {
   if (!timeline.some((i) => i.id === selectedItemId)) selectedItemId = null;
   rebuildSegments();
   renderTimeline();
+  updateIdlePoster();
+}
+
+// Before first play the program monitor is otherwise a black box — show the first
+// (local) clip's frame as a poster so idle state reads as "ready", not "broken".
+// A real frame replaces the poster once playback starts; the poster returns when a
+// new edit is loaded and nothing has played yet.
+function updateIdlePoster() {
+  const first = segments.find((s) => s.item && s.item.available_locally !== false);
+  const poster = first ? `/api/clips/${first.clipId}/thumbnail` : "";
+  [_videoA, _videoB].forEach((v) => {
+    if (poster) v.poster = poster;
+    else v.removeAttribute("poster");
+  });
 }
 
 // Persist the output frame/aspect on the current edit. With no edit yet, the choice
@@ -409,6 +471,15 @@ document.getElementById("aspect-select").addEventListener("change", async (e) =>
     pop.classList.toggle("hidden", !open);
     btn.classList.toggle("open", open);
     btn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) {
+      // Default anchoring is right:0 (opens leftward). If that pushes the popover
+      // past the left edge — e.g. a narrow window or the gear near the left — flip
+      // to left-anchored so it stays fully on-screen.
+      pop.style.right = "";
+      pop.style.left = "";
+      const r = pop.getBoundingClientRect();
+      if (r.left < 4) { pop.style.right = "auto"; pop.style.left = "0"; }
+    }
   };
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -916,9 +987,13 @@ document.getElementById("generate-btn").addEventListener("click", async () => {
     if (aspectSel) body.aspect = aspectSel.value;
     const r = await api("/api/generate-edit", { method: "POST", body: JSON.stringify(body) });
     currentEditId = String(r.id);
-    await loadEdits();
+    await loadEdits();   // resyncs the Frame gear from the new edit's aspect
     document.getElementById("generate-prompt").value = "";
     el.textContent = `New edit · ${r.selections.length} clips`;
+    // If the model inferred the frame from the wording, say so (the gear already reflects it).
+    if (r.aspect_inferred && r.aspect && window.showToast) {
+      showToast(`Framing: ${ASPECT_LABELS[r.aspect] || r.aspect} — change in ⚙`, { type: "info" });
+    }
   } catch (err) { el.textContent = `Error: ${err.message}`; }
 });
 

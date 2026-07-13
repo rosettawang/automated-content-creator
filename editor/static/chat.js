@@ -175,7 +175,12 @@ chatForm.addEventListener("submit", async (e) => {
     chatMessages.appendChild(chatBubble("assistant", r.reply));
     chatUndo.disabled = !r.can_undo;
     chatInput.value = "";                          // clear ONLY after acknowledged
-    await loadTimeline();   // reflect the new timeline in the editor
+    await loadTimeline();   // reflect the new timeline (and Frame gear) in the editor
+    // If the chat reframed the edit, flag it (gear already resynced via loadTimeline).
+    if (r.aspect && window.showToast) {
+      const label = (typeof ASPECT_LABELS !== "undefined" && ASPECT_LABELS[r.aspect]) || r.aspect;
+      showToast(`Framing changed to ${label} — change in ⚙`, { type: "info" });
+    }
   } catch (err) {
     thinking.remove();
     const errMsg = chatBubble("assistant", `Couldn't apply that: ${err.message}`);

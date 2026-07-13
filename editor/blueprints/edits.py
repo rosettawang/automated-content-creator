@@ -150,9 +150,20 @@ def generate_into_edit(edit_id):
                VALUES (?, ?, ?, ?, ?)""",
             (edit_id, sel.clip_id, max_pos + 1 + i, sel.in_point, sel.out_point),
         )
+    # Fill an inferred frame only if this edit doesn't already have one set — never
+    # override an explicit aspect on an append.
+    plan_aspect = getattr(plan, "aspect", None)
+    plan_aspect = plan_aspect if plan_aspect in ASPECT_DIMS else None
+    aspect_inferred = False
+    if plan_aspect and (edit["aspect"] or "source") == "source":
+        conn.execute("UPDATE edits SET aspect = ? WHERE id = ?", (plan_aspect, edit_id))
+        aspect_inferred = True
     conn.commit()
     conn.close()
-    return jsonify({"concept": plan.concept, "selections": [s.model_dump() for s in plan.selections]})
+    return jsonify({
+        "concept": plan.concept, "selections": [s.model_dump() for s in plan.selections],
+        "aspect": plan_aspect if aspect_inferred else None, "aspect_inferred": aspect_inferred,
+    })
 
 
 @bp.get("/api/edits/<int:edit_id>/chat")
@@ -202,6 +213,13 @@ def chat_edit(edit_id):
     # Snapshot BEFORE applying, so undo returns to the pre-prompt version.
     _snapshot_edit(conn, edit_id, prompt)
     _replace_timeline(conn, edit_id, result.selections)
+    # The model fills aspect ONLY when the instruction asked to reframe (e.g. "make it
+    # square"), so a chat that doesn't mention framing leaves the edit's aspect intact
+    # — an explicit gear choice is never clobbered unless the user asks.
+    new_aspect = getattr(result, "aspect", None)
+    new_aspect = new_aspect if new_aspect in ASPECT_DIMS else None
+    if new_aspect and new_aspect != (edit["aspect"] or "source"):
+        conn.execute("UPDATE edits SET aspect = ? WHERE id = ?", (new_aspect, edit_id))
     conn.execute(
         "INSERT INTO edit_messages (edit_id, role, content) VALUES (?, 'user', ?)",
         (edit_id, prompt),
@@ -212,7 +230,10 @@ def chat_edit(edit_id):
     )
     conn.commit()
     conn.close()
-    return jsonify({"reply": result.reply, "count": len(result.selections), "can_undo": True})
+    return jsonify({
+        "reply": result.reply, "count": len(result.selections), "can_undo": True,
+        "aspect": new_aspect,   # non-null when the chat changed the frame (UI can resync the gear)
+    })
 
 
 @bp.post("/api/edits/<int:edit_id>/undo")
@@ -269,11 +290,11 @@ def generate_edit_from_scratch():
         return {"error": "clip_ids must be a list of integers"}, 400
     campaign_id = data.get("campaign_id")
 
-    # Output frame/aspect for the new edit (from the editor's Frame setting). Validated
-    # against the known aspects; anything else falls back to 'source' (no reframe).
-    aspect = data.get("aspect") or "source"
-    if aspect not in ("source", *ASPECT_DIMS.keys()):
-        aspect = "source"
+    # An explicit non-'source' aspect from the editor's Frame gear wins over anything
+    # the model infers. 'source' or missing means "not explicitly chosen" — let the
+    # inferred plan.aspect fill it in below.
+    req_aspect = (data.get("aspect") or "").strip()
+    explicit_aspect = req_aspect if req_aspect in ASPECT_DIMS else None
 
     conn = get_conn()
     clips = _pool_for_generation(conn, clip_ids, campaign_id)
@@ -287,6 +308,16 @@ def generate_edit_from_scratch():
     except Exception as e:
         conn.close()
         return {"error": str(e)}, 502
+
+    # Precedence: explicit gear choice > model-inferred aspect > 'source'.
+    plan_aspect = getattr(plan, "aspect", None)
+    plan_aspect = plan_aspect if plan_aspect in ASPECT_DIMS else None  # ignore 'source'/null
+    if explicit_aspect:
+        aspect, aspect_inferred = explicit_aspect, False
+    elif plan_aspect:
+        aspect, aspect_inferred = plan_aspect, True
+    else:
+        aspect, aspect_inferred = "source", False
 
     # Auto-name: prefer the model's short concept line, else fall back to the prompt.
     concept = (getattr(plan, "concept", "") or "").strip()
@@ -307,6 +338,7 @@ def generate_edit_from_scratch():
     conn.close()
     return jsonify({
         "id": edit_id, "name": name, "campaign_id": campaign_id, "aspect": aspect,
+        "aspect_inferred": aspect_inferred,
         "concept": plan.concept, "selections": [s.model_dump() for s in plan.selections],
     })
 

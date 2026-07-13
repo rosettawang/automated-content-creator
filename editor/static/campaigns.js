@@ -79,7 +79,8 @@ function render() {
           `<span class="cut-count">${cut.item_count || 0} clip${cut.item_count === 1 ? "" : "s"}</span>`;
         row.onclick = (e) => {
           e.stopPropagation();
-          window.location.href = `/?edit=${cut.id}`;
+          if (window.studioOpenEdit) window.studioOpenEdit(cut.id);
+          else window.location.href = `/?edit=${cut.id}`;
         };
         cutsWrap.appendChild(row);
       });

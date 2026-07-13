@@ -21,6 +21,10 @@ dependencies = [
     "mcp",
 ]
 
+# Test-only dependencies: `pip install -e .[test]` then `./run_tests.sh`.
+[project.optional-dependencies]
+test = ["pytest"]
+
 # Console command that launches the MCP server. Because the package is installed
 # editable (`-e`), this resolves back to editor/mcp_server.py in the repo, so its
 # sibling app.py (used for auto-start) is still found.

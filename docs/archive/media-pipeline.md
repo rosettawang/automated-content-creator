@@ -1,3 +1,5 @@
+> **ARCHIVED — historical snapshot. Do not update.** Accurate as of its writing; superseded by the codebase, `README.md`, and `ROADMAP.md`.
+
 # Media Pipeline
 
 ## Goal

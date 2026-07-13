@@ -32,6 +32,9 @@ async function loadCuts() {
 
   empty.classList.toggle("hidden", edits.length > 0);
 
+  // Newest first — most people want the cut they just made at the top.
+  edits.sort((a, b) => (b.id || 0) - (a.id || 0));
+
   edits.forEach((e) => {
     const card = document.createElement("div");
     card.className = "cut-card";
@@ -49,7 +52,10 @@ async function loadCuts() {
       thumb.classList.add("noimg");
     }
     thumb.title = "Open in editor";
-    thumb.onclick = () => { window.location.href = `/?edit=${e.id}`; };
+    thumb.onclick = () => {
+      if (window.studioOpenEdit) window.studioOpenEdit(e.id);
+      else window.location.href = `/?edit=${e.id}`;
+    };
 
     const body = document.createElement("div");
     body.className = "cut-body";
@@ -82,7 +88,10 @@ async function loadCuts() {
     actions.className = "cut-actions";
     const openBtn = document.createElement("button");
     openBtn.textContent = "Open";
-    openBtn.onclick = () => { window.location.href = `/?edit=${e.id}`; };
+    openBtn.onclick = () => {
+      if (window.studioOpenEdit) window.studioOpenEdit(e.id);
+      else window.location.href = `/?edit=${e.id}`;
+    };
     const renameBtn = document.createElement("button");
     renameBtn.textContent = "Rename";
     renameBtn.onclick = async () => {
