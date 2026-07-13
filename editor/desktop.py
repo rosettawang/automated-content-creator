@@ -11,7 +11,7 @@ import threading
 
 import webview
 
-from app import app, init_db
+from app import app, init_db, reconcile_orphaned_jobs
 
 
 def _pick_port(preferred=5001):
@@ -50,11 +50,16 @@ class NativeApi:
 
 
 def run_flask():
-    app.run(port=PORT, debug=False, use_reloader=False)
+    # waitress (not the Werkzeug dev server): single process, threaded, no reloader —
+    # so background jobs aren't killed and the debugger isn't exposed. Runs fine in a
+    # daemon thread under the pywebview main thread.
+    from waitress import serve as waitress_serve
+    waitress_serve(app, host="127.0.0.1", port=PORT, threads=12)
 
 
 def main():
     init_db()
+    reconcile_orphaned_jobs()
     thread = threading.Thread(target=run_flask, daemon=True)
     thread.start()
     api = NativeApi()

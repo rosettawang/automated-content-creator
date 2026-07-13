@@ -50,7 +50,10 @@ body {
   overflow: hidden;
   flex: 1 1 0;
 }
-.studio-pane.hidden { display: none; }
+/* Must out-specify the per-panel `display` rules below (e.g. the editor's
+   display:flex), which otherwise tie on specificity and win by source order —
+   that's why a closed Editor pane stayed visible. The id guarantees it wins. */
+#studio-panes .studio-pane.hidden { display: none; }
 
 /* Library / Campaigns: scrolling columns (their headers are sticky within). */
 .studio-pane[data-panel="library"],

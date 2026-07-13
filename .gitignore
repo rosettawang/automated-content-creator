@@ -34,3 +34,8 @@ editor/content_creator.egg-info/
 # local DB safety backups
 editor/data/*.bak-*
 editor/data/*.bak
+# SQLite WAL sidecars (WAL mode) — regenerated, never source
+editor/data/*.db-wal
+editor/data/*.db-shm
+# macOS/pywebview FUSE artifacts
+editor/data/.fuse_hidden*

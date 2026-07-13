@@ -64,6 +64,11 @@ function renderClipCards(headText, clips) {
   clips.forEach((clip) => {
     const card = document.createElement("div");
     card.className = "card" + (clip.available_locally ? "" : " unavailable");
+
+    // Thumbnail plus an optional overlay box showing WHERE the thing sits in the
+    // frame (the region a reframe/crop should keep).
+    const shot = document.createElement("div");
+    shot.className = "shot";
     const img = document.createElement("img");
     img.className = "thumb";
     img.loading = "lazy";
@@ -74,13 +79,25 @@ function renderClipCards(headText, clips) {
       ph.textContent = "▶";
       img.replaceWith(ph);
     };
+    shot.appendChild(img);
+    if (clip.region && clip.region.w > 0 && clip.region.h > 0) {
+      const box = document.createElement("div");
+      box.className = "region-box";
+      box.style.left = `${clip.region.x * 100}%`;
+      box.style.top = `${clip.region.y * 100}%`;
+      box.style.width = `${clip.region.w * 100}%`;
+      box.style.height = `${clip.region.h * 100}%`;
+      box.title = "Where this thing is in the frame (used for reframing)";
+      shot.appendChild(box);
+    }
+
     const meta = document.createElement("div");
     meta.className = "meta";
     const nameEl = document.createElement("div");
     nameEl.className = "name";
     nameEl.textContent = clip.file_stem;
     meta.appendChild(nameEl);
-    card.appendChild(img);
+    card.appendChild(shot);
     card.appendChild(meta);
     card.onclick = () => showInfo(clip);
     grid.appendChild(card);
@@ -210,6 +227,11 @@ function renderThingClips(thing, clips) {
   clips.forEach((clip) => {
     const card = document.createElement("div");
     card.className = "card" + (clip.available_locally ? "" : " unavailable");
+
+    // Thumbnail plus an optional overlay box showing WHERE the thing sits in the
+    // frame (the region a reframe/crop should keep).
+    const shot = document.createElement("div");
+    shot.className = "shot";
     const img = document.createElement("img");
     img.className = "thumb";
     img.loading = "lazy";
@@ -220,13 +242,25 @@ function renderThingClips(thing, clips) {
       ph.textContent = "▶";
       img.replaceWith(ph);
     };
+    shot.appendChild(img);
+    if (clip.region && clip.region.w > 0 && clip.region.h > 0) {
+      const box = document.createElement("div");
+      box.className = "region-box";
+      box.style.left = `${clip.region.x * 100}%`;
+      box.style.top = `${clip.region.y * 100}%`;
+      box.style.width = `${clip.region.w * 100}%`;
+      box.style.height = `${clip.region.h * 100}%`;
+      box.title = "Where this thing is in the frame (used for reframing)";
+      shot.appendChild(box);
+    }
+
     const meta = document.createElement("div");
     meta.className = "meta";
     const nameEl = document.createElement("div");
     nameEl.className = "name";
     nameEl.textContent = clip.file_stem;
     meta.appendChild(nameEl);
-    card.appendChild(img);
+    card.appendChild(shot);
     card.appendChild(meta);
     card.onclick = () => showInfo(clip);
     grid.appendChild(card);

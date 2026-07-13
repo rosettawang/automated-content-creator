@@ -36,17 +36,19 @@ python3.11 migrate_xlsx.py          # syncs content_intake_log.xlsx -> editor/da
 MEDIA_DIR=/path/to/local/footage python3.11 desktop.py
 ```
 
-This opens **two native windows** (via `pywebview`), not browser tabs — an **Editor** window
-and a separate **Clip Library** window, both backed by the same Flask process (`app.py`) that
+This opens **one native window** (via `pywebview`), not browser tabs — the **Content Studio**
+shell at `/studio`, which hosts the Clip Library, Editor, and Campaigns as panels you open,
+close, and resize from a left rail. It's backed by the Flask process (`app.py`) that
 `desktop.py` runs in a background thread. If you'd rather use a browser tab (e.g. for devtools),
-run `python3.11 app.py` and open `http://127.0.0.1:5001` (editor) / `http://127.0.0.1:5001/library`
-(library) yourself.
+run `python3.11 app.py` and open `http://127.0.0.1:5001/studio`. The individual panels are also
+served standalone for deep links — `/` (editor), `/library`, `/projects` (campaigns).
 
 - **Clip Library window** — a thumbnail grid of every indexed clip with search and a per-clip
   info panel. This is the browse/catalog view, and it's also a launch point for a cut: type
   what you want in the **"Describe the video you want"** bar and hit **Assemble in editor →**.
-  That creates a new project, generates a rough cut from your indexed clips, and jumps straight
-  into the Editor window (via `/?project=<id>`) with the timeline already populated. Tick the
+  That creates a new edit, generates a rough cut from your indexed clips, and jumps straight
+  into the Editor (via `/?edit=<id>`) with the timeline already populated. (A campaign can also
+  be deep-linked with `/?project=<id>`, which opens its most recent edit.) Tick the
   **checkbox** on any cards first to scope the generation to just those clips (a hint shows the
   count, and **Clear selection** resets it); with nothing selected it draws from the whole
   library. Selected clips are treated as a suggestion — Claude may use a subset for a tighter cut.

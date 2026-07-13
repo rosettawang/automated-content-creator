@@ -9,13 +9,80 @@ let timeline = [];            // [{id, clip_id, file_stem, description, in_point
 let selectedItemId = null;
 let pxPerSec = 40;
 
-// program playback
-const programVideo = document.getElementById("program-video");
+// program playback — double-buffered: two <video>s alternate so the NEXT segment is
+// preloaded and sought while the current one plays, so cuts don't stall.
+const _videoA = document.getElementById("program-video");
+const _videoB = document.getElementById("program-video-b");
+let programVideo = _videoA;    // the active/visible element (crop.js reads this live)
+let _bufferedSeg = -1;         // segment index currently preloaded (paused at its in-point) in the hidden buffer
 let segments = [];            // derived from timeline: {item, start, end, dur, clipId, inP, outP}
 let activeSeg = -1;
 let playing = false;
 let loadingSeg = false;
 let rafId = null;
+
+function inactiveVideo() { return programVideo === _videoA ? _videoB : _videoA; }
+
+function setActiveVideo(el) {
+  if (el === programVideo) return;
+  programVideo.pause();
+  programVideo = el;
+  _videoA.classList.toggle("pv-active", programVideo === _videoA);
+  _videoB.classList.toggle("pv-active", programVideo === _videoB);
+  // The hidden buffer preloads muted (so it's silent); the active element must have
+  // audio. Muting the outgoing one keeps the next preload silent too.
+  programVideo.muted = false;
+  inactiveVideo().muted = true;
+  // crop.js positions its overlay against the live programVideo — refresh on swap.
+  if (typeof refreshCropOverlay === "function") refreshCropOverlay();
+}
+
+const segSrc = (seg) => `/api/clips/${seg.clipId}/media`;
+
+// Load `seg` into video element `el` and seek to (inP + within); cb(err|null) when
+// ready (paused). Used both to make a segment live and to preload the next one.
+function prepareOn(el, seg, within, cb) {
+  const want = segSrc(seg);
+  const seekTo = seg.inP + Math.max(0, within || 0);
+  const ready = () => {
+    el.removeEventListener("error", onErr);
+    try { el.currentTime = seekTo; } catch (_) { /* not seekable yet */ }
+    cb && cb(null);
+  };
+  const onErr = () => {
+    el.removeEventListener("loadeddata", ready);
+    cb && cb(new Error("load-failed"));
+  };
+  if (!el.src.endsWith(want)) {
+    el.src = want;
+    el.addEventListener("loadeddata", ready, { once: true });
+    el.addEventListener("error", onErr, { once: true });
+  } else if (el.readyState >= 1) {
+    ready();
+  } else {
+    el.addEventListener("loadeddata", ready, { once: true });
+    el.addEventListener("error", onErr, { once: true });
+  }
+}
+
+// Preload the segment AFTER i into the hidden buffer (skips non-local / end-of-timeline).
+function preloadNext(i) {
+  _bufferedSeg = -1;
+  const n = i + 1;
+  if (n >= segments.length) return;
+  const seg = segments[n];
+  if (seg.item && seg.item.available_locally === false) return;
+  prepareOn(inactiveVideo(), seg, 0, (err) => { if (!err) _bufferedSeg = n; });
+}
+
+// Promote the hidden buffer (already loaded + sought to its in-point) to active.
+function goLiveWithBuffer(thenPlay) {
+  setActiveVideo(inactiveVideo());
+  loadingSeg = false;
+  showProgramMessage("");
+  if (thenPlay) programVideo.play();
+  preloadNext(activeSeg);
+}
 
 // ---------- api ----------
 async function api(path, options = {}) {
@@ -194,13 +261,49 @@ function fillMetadataEditor(clip) {
   document.getElementById("save-meta-result").textContent = "";
 }
 
+// Human-readable reason for an HTMLMediaElement error code.
+function mediaErrorText(v) {
+  const code = v.error && v.error.code;
+  if (code === 1) return "load aborted";
+  if (code === 2) return "network error reading the file";
+  if (code === 3) return "can't decode this clip";
+  if (code === 4) return "unsupported codec / format";
+  return "can't be played in-app";
+}
+
 function selectClip(clip) {
   selectedClip = clip;
   renderClipList();
   const v = document.getElementById("source-video");
+  const infoEl = document.getElementById("source-info");
+  const baseInfo = `${clip.file_stem} — ${clip.duration_s || "?"}s — ${clip.category || ""}`;
+
+  // Surface genuine media failures instead of a silent black frame. Listeners are
+  // set BEFORE src so an immediate error is caught; onerror/onstalled (not
+  // addEventListener) so they replace rather than stack across clip switches.
+  let stallTimer = null;
+  const clearStall = () => { if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; } };
+  v.onerror = () => {
+    clearStall();
+    infoEl.textContent = `${baseInfo} — ⚠ ${mediaErrorText(v)} (still usable in exports)`;
+    infoEl.classList.add("load-error");
+    if (window.showToast) {
+      showToast(`${clip.file_stem}: ${mediaErrorText(v)}. A web-safe copy is being prepared — try again shortly.`,
+                { type: "error" });
+    }
+  };
+  v.onloadeddata = () => { clearStall(); infoEl.classList.remove("load-error"); };
+  v.onstalled = v.onwaiting = () => {
+    // Only warn if it's still not ready a few seconds on — buffering briefly is normal.
+    clearStall();
+    stallTimer = setTimeout(() => {
+      if (v.readyState < 2 && !v.error) infoEl.textContent = `${baseInfo} — ⏳ still loading…`;
+    }, 4000);
+  };
+
+  infoEl.classList.remove("load-error");
+  infoEl.textContent = baseInfo;
   v.src = `/api/clips/${clip.id}/media`;
-  document.getElementById("source-info").textContent =
-    `${clip.file_stem} — ${clip.duration_s || "?"}s — ${clip.category || ""}`;
   const avail = clip.available_locally;
   document.getElementById("source-controls").style.display = avail ? "flex" : "none";
   document.getElementById("source-tools").style.display = avail ? "flex" : "none";
@@ -285,9 +388,10 @@ async function loadTimeline() {
   renderTimeline();
 }
 
-// Persist the output frame/aspect on the current edit.
+// Persist the output frame/aspect on the current edit. With no edit yet, the choice
+// is simply held in the control and applied to the next edit you Generate.
 document.getElementById("aspect-select").addEventListener("change", async (e) => {
-  if (!currentEditId) { e.target.value = "source"; alert("Create or pick an edit first."); return; }
+  if (!currentEditId) return;   // pending default for the next Generate; nothing to save
   await api(`/api/edits/${currentEditId}`, {
     method: "PUT",
     body: JSON.stringify({ aspect: e.target.value }),
@@ -320,6 +424,9 @@ document.getElementById("aspect-select").addEventListener("change", async (e) =>
 })();
 
 function rebuildSegments() {
+  // The timeline changed, so any preloaded buffer is stale — invalidate it so we
+  // never swap to a segment that no longer follows the current one.
+  _bufferedSeg = -1;
   segments = [];
   let t = 0;
   timeline.forEach((item) => {
@@ -361,21 +468,65 @@ function renderTimeline() {
 
   segments.forEach((seg) => {
     const el = document.createElement("div");
-    el.className = "tl-clip" + (seg.item.id === selectedItemId ? " selected" : "");
+    const notLocal = seg.item.available_locally === false;
+    const canPull = notLocal && seg.item.can_redownload;
+    el.className = "tl-clip" + (notLocal ? " not-local" : "") + (seg.item.id === selectedItemId ? " selected" : "");
+    if (notLocal) el.title = canPull
+      ? `${seg.item.file_stem} isn't downloaded. Click "Re-download" to fetch it from its source (${seg.item.source_kind}).`
+      : `${seg.item.file_stem} isn't downloaded and has no recorded source — import its file, or ask the edit chat to swap it for a local clip.`;
     el.style.left = `${seg.start * pxPerSec}px`;
     el.style.width = `${Math.max(seg.dur * pxPerSec, 12)}px`;
     el.innerHTML = `
-      <div class="tl-label">${seg.item.file_stem}
+      <div class="tl-label">${seg.item.file_stem}${notLocal ? ' <span class="tl-warn">⚠ not local</span>' : ""}
         <span class="tl-sub">${seg.dur.toFixed(1)}s</span></div>
+      ${canPull ? '<button class="tl-redl" type="button">⤓ Re-download</button>' : ""}
       <div class="tl-handle left"></div>
       <div class="tl-handle right"></div>`;
     attachClipInteractions(el, seg);
+    if (canPull) {
+      const btn = el.querySelector(".tl-redl");
+      // Don't let the button's drag/select gestures bubble to the clip block.
+      btn.addEventListener("mousedown", (e) => e.stopPropagation());
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        pullClip(seg.item.clip_id, seg.item.file_stem, btn);
+      });
+    }
     track.appendChild(el);
   });
   track.appendChild(playhead);
   updatePlayhead(currentGlobalTime());
   document.getElementById("time-readout").textContent = `${fmt(currentGlobalTime())} / ${fmt(total)}`;
   if (typeof refreshCropOverlay === "function") refreshCropOverlay();
+}
+
+// Re-download a not-local clip from its recorded source, then relink + refresh so
+// it flips to available (playable/exportable). Reuses the import job + poll pattern.
+async function pullClip(clipId, fileStem, btnEl) {
+  if (!clipId) return;
+  const label = btnEl ? btnEl.textContent : null;
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = "…"; }
+  showProgramMessage(`Re-downloading ${fileStem}…`);
+  try {
+    const started = await api(`/api/clips/${clipId}/pull`, { method: "POST" });
+    if (started.job_id) {
+      for (;;) {
+        const job = await api(`/api/import-jobs/${started.job_id}`);
+        if (job.finished) { if (job.error) throw new Error(job.error); break; }
+        const count = job.total ? ` (${job.done}/${job.total})` : "";
+        showProgramMessage(`Fetching ${fileStem}${count}…${job.current ? " " + job.current : ""}`);
+        await new Promise((r) => setTimeout(r, 700));
+      }
+    }
+    showProgramMessage("");
+    const searchEl = document.getElementById("search");
+    await loadClips(searchEl ? searchEl.value : "");
+    if (currentEditId) await loadTimeline();   // rebuilds the timeline (button included)
+    broadcastClipUpdated(clipId);
+  } catch (err) {
+    showProgramMessage(`Couldn't re-download ${fileStem}: ${err.message}`);
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = label; }
+  }
 }
 
 // ---------- playhead / seeking ----------
@@ -396,26 +547,64 @@ function segAtTime(t) {
   return segments.length ? segments.length - 1 : -1;
 }
 
+function showProgramMessage(text) {
+  const el = document.getElementById("program-msg");
+  if (!el) return;
+  el.textContent = text || "";
+  el.classList.toggle("hidden", !text);
+}
+
 function loadSegment(i, withinSeconds, thenPlay) {
   if (i < 0 || i >= segments.length) return;
   const seg = segments[i];
   activeSeg = i;
-  const wantSrc = `/api/clips/${seg.clipId}/media`;
-  const seekTo = seg.inP + Math.max(0, withinSeconds || 0);
+  const within = Math.max(0, withinSeconds || 0);
 
-  const doSeek = () => {
-    programVideo.currentTime = seekTo;
+  // If we already know the media isn't on disk, don't spin forever waiting for a
+  // load that will 404 — say so and stop.
+  if (seg.item && seg.item.available_locally === false) {
     loadingSeg = false;
-    if (thenPlay) programVideo.play();
-  };
-
-  if (!programVideo.src.endsWith(wantSrc)) {
-    loadingSeg = true;
-    programVideo.src = wantSrc;
-    programVideo.addEventListener("loadeddata", doSeek, { once: true });
-  } else {
-    doSeek();
+    pause();
+    showProgramMessage(`"${seg.item.file_stem}" isn't downloaded — import its file to preview or export this edit.`);
+    return;
   }
+
+  // Fast path: this exact segment is already preloaded & sought in the hidden buffer
+  // (the common case at a clean cut) — promote it instantly, no load/seek stall.
+  if (within < 0.05 && _bufferedSeg === i
+      && inactiveVideo().src.endsWith(segSrc(seg))
+      && inactiveVideo().readyState >= 2) {
+    goLiveWithBuffer(thenPlay);
+    return;
+  }
+
+  // Otherwise load onto the active element (a fresh start or a scrub/seek).
+  loadingSeg = true;
+  showProgramMessage("");
+  prepareOn(programVideo, seg, within, (err) => {
+    loadingSeg = false;
+    if (err) {
+      pause();
+      const stem = seg.item ? seg.item.file_stem : "clip";
+      showProgramMessage(`Couldn't load "${stem}" — its media may be missing or an unsupported format.`);
+      if (window.showToast) showToast(`Couldn't load "${stem}" — media missing or unsupported format.`, { type: "error" });
+      return;
+    }
+    if (thenPlay) programVideo.play();
+    preloadNext(i);   // get the following segment ready in the hidden buffer
+  });
+
+  // Some failures (a container/MIME the browser won't demux) neither load nor error —
+  // they stall silently at readyState 0. Watchdog: after 8s, stop and say why.
+  setTimeout(() => {
+    if (loadingSeg && activeSeg === i && programVideo.readyState === 0 && !programVideo.error) {
+      loadingSeg = false;
+      pause();
+      const stem = seg.item ? seg.item.file_stem : "clip";
+      showProgramMessage(`"${stem}" isn't loading — the browser may not support this file's format. A web-safe .mp4 is being prepared; try again shortly.`);
+      if (window.showToast) showToast(`"${stem}" isn't loading — preparing a web-safe copy, try again shortly.`, { type: "warn" });
+    }
+  }, 8000);
 }
 
 function seekGlobal(t, thenPlay) {
@@ -454,7 +643,15 @@ function tick() {
     const seg = segments[activeSeg];
     if (programVideo.currentTime >= seg.outP - 0.02) {
       if (activeSeg + 1 < segments.length) {
-        loadSegment(activeSeg + 1, 0, true);
+        const nextI = activeSeg + 1;
+        // Swap to the preloaded buffer if it's ready (seamless); else fall back to a load.
+        if (_bufferedSeg === nextI && inactiveVideo().src.endsWith(segSrc(segments[nextI]))
+            && inactiveVideo().readyState >= 2) {
+          activeSeg = nextI;
+          goLiveWithBuffer(true);
+        } else {
+          loadSegment(nextI, 0, true);
+        }
       } else {
         pause();
         updatePlayhead(totalDuration());
@@ -618,11 +815,49 @@ document.getElementById("add-to-timeline").addEventListener("click", async () =>
 async function doExport() {
   const el = document.getElementById("export-result");
   if (!currentEditId) { el.textContent = "Pick an edit to export."; return; }
+  // Pre-flight: every timeline clip must be on disk, or ffmpeg has nothing to cut.
+  const missing = [...new Set(timeline.filter((i) => i.available_locally === false).map((i) => i.file_stem))];
+  if (missing.length) {
+    el.textContent = `Can't export — not downloaded: ${missing.join(", ")}. Import these files or swap them for local clips.`;
+    return;
+  }
+  const btn = document.getElementById("export-btn");
+  const cancelBtn = document.getElementById("export-cancel");
+  btn.disabled = true;
   el.textContent = "Exporting…";
   try {
-    const r = await api(`/api/edits/${currentEditId}/export`, { method: "POST" });
-    el.textContent = `Exported to ${r.output}`;
-  } catch (err) { el.textContent = `Error: ${err.message}`; }
+    // Export runs as a background job (long timelines would time out a request).
+    // Kick it off, then poll progress until done; expose a Cancel that kills ffmpeg.
+    const started = await api(`/api/edits/${currentEditId}/export`, { method: "POST" });
+    cancelBtn.classList.remove("hidden");
+    cancelBtn.onclick = async () => {
+      cancelBtn.disabled = true;
+      el.textContent = "Cancelling…";
+      try { await api(`/api/jobs/${started.job_id}/cancel`, { method: "POST" }); }
+      catch (e) { /* the poll loop will report the final state */ }
+    };
+    for (;;) {
+      const job = await api(`/api/import-jobs/${started.job_id}`);
+      if (job.finished) {
+        if (job.phase === "cancelled" || job.cancelled) { el.textContent = "Export cancelled."; break; }
+        if (job.error) throw new Error(job.error);
+        const out = (job.results && job.results[0]) || {};
+        el.textContent = out.output ? `Exported to ${out.output}` : "Exported.";
+        break;
+      }
+      const phase = job.phase === "stitching" ? "Joining clips" : "Encoding";
+      const count = job.total ? ` (${job.done}/${job.total})` : "";
+      el.textContent = `${phase}${count}…${job.current ? " " + job.current : ""}`;
+      await new Promise((r) => setTimeout(r, 700));
+    }
+  } catch (err) {
+    el.textContent = `Error: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+    cancelBtn.classList.add("hidden");
+    cancelBtn.disabled = false;
+    cancelBtn.onclick = null;
+  }
 }
 document.getElementById("export-btn").addEventListener("click", doExport);
 
@@ -675,6 +910,10 @@ document.getElementById("generate-btn").addEventListener("click", async () => {
     // prompt. To reshape an existing edit, use the Edit Chat panel instead.
     const body = { prompt };
     if (currentProjectId) body.project_id = parseInt(currentProjectId, 10);
+    // Apply the editor's current Frame setting to the new edit, so "generate vertical"
+    // actually reframes to 9:16 rather than defaulting to source.
+    const aspectSel = document.getElementById("aspect-select");
+    if (aspectSel) body.aspect = aspectSel.value;
     const r = await api("/api/generate-edit", { method: "POST", body: JSON.stringify(body) });
     currentEditId = String(r.id);
     await loadEdits();

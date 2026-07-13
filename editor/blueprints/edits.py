@@ -1,0 +1,580 @@
+from flask import Blueprint
+from core import *
+
+bp = Blueprint("edits", __name__)
+
+
+@bp.get("/api/edits")
+def list_edits():
+    """List edits (cuts) with enough to browse them: campaign name, total trimmed
+    duration, clip count, and the first clip (for a thumbnail). No project filter =>
+    every cut, including unassigned ones (so the Cuts view can surface orphans)."""
+    project_id = request.args.get("project", "").strip()
+    conn = get_conn()
+    if project_id:
+        rows = conn.execute(
+            f"""SELECT {_EDIT_LIST_COLS}
+               FROM edits e
+               LEFT JOIN timeline_items t ON t.edit_id = e.id
+               LEFT JOIN projects p ON p.id = e.project_id
+               WHERE e.project_id = ?
+               GROUP BY e.id ORDER BY e.created_at DESC""",
+            (project_id,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            f"""SELECT {_EDIT_LIST_COLS}
+               FROM edits e
+               LEFT JOIN timeline_items t ON t.edit_id = e.id
+               LEFT JOIN projects p ON p.id = e.project_id
+               GROUP BY e.id ORDER BY e.created_at DESC"""
+        ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@bp.post("/api/edits")
+def create_edit():
+    data = request.json or {}
+    name = (data.get("name") or "Untitled edit").strip() or "Untitled edit"
+    project_id = data.get("project_id")
+    conn = get_conn()
+    cur = conn.execute(
+        "INSERT INTO edits (name, project_id) VALUES (?, ?)", (name, project_id)
+    )
+    edit_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({"id": edit_id, "name": name, "project_id": project_id})
+
+
+@bp.get("/api/edits/<int:edit_id>")
+def get_edit(edit_id):
+    conn = get_conn()
+    edit = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
+    if not edit:
+        conn.close()
+        return {"error": "not found"}, 404
+    items = conn.execute(
+        """SELECT timeline_items.*, clips.file_stem, clips.description,
+                  clips.duration_s AS clip_duration_s,
+                  clips.width AS clip_width, clips.height AS clip_height,
+                  clips.media_path AS media_path,
+                  clips.source_kind AS source_kind, clips.source_url AS source_url
+           FROM timeline_items
+           JOIN clips ON clips.id = timeline_items.clip_id
+           WHERE edit_id = ? ORDER BY position""",
+        (edit_id,),
+    ).fetchall()
+    conn.close()
+    # Flag each item's verified media state, so the editor can badge and warn instead
+    # of silently failing to play/export a clip whose file isn't local. can_redownload
+    # drives the timeline's "Re-download" affordance.
+    out_items = []
+    for i in items:
+        d = dict(i)
+        status, _ = clip_media_status(d)
+        d["availability"] = status                 # present | missing | absent
+        d["available_locally"] = status == "present"
+        d["can_redownload"] = _can_redownload(d.get("source_kind"), d.get("source_url"))
+        out_items.append(d)
+    return jsonify({**dict(edit), "items": out_items})
+
+
+@bp.put("/api/edits/<int:edit_id>")
+def update_edit(edit_id):
+    data = request.json or {}
+    fields, values = [], []
+    if "name" in data:
+        fields.append("name = ?")
+        values.append((data.get("name") or "Untitled edit").strip() or "Untitled edit")
+    if "project_id" in data:
+        fields.append("project_id = ?")
+        values.append(data.get("project_id"))
+    if "aspect" in data:
+        aspect = data.get("aspect")
+        if aspect not in (None, "", "source", *ASPECT_DIMS.keys()):
+            return {"error": f"invalid aspect (use source/{'/'.join(ASPECT_DIMS)})"}, 400
+        fields.append("aspect = ?")
+        values.append(aspect or "source")
+    if not fields:
+        return {"error": "nothing to update"}, 400
+    conn = get_conn()
+    conn.execute(f"UPDATE edits SET {', '.join(fields)} WHERE id = ?", (*values, edit_id))
+    conn.commit()
+    row = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
+    conn.close()
+    if not row:
+        return {"error": "not found"}, 404
+    return jsonify(dict(row))
+
+
+@bp.delete("/api/edits/<int:edit_id>")
+def delete_edit(edit_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM edits WHERE id = ?", (edit_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"deleted": edit_id})
+
+
+@bp.post("/api/edits/<int:edit_id>/generate")
+def generate_into_edit(edit_id):
+    """Append an AI rough cut to an existing edit, using its project's context."""
+    prompt = (request.json.get("prompt") or "").strip()
+    if not prompt:
+        return {"error": "prompt is required"}, 400
+    conn = get_conn()
+    edit = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
+    if not edit:
+        conn.close()
+        return {"error": "not found"}, 404
+    clips = _pool_for_generation(conn, [], edit["project_id"])
+    if not clips:
+        conn.close()
+        return {"error": "No downloaded clips to assemble from. Import/pull clips into "
+                "your media folder first — catalog-only clips can't be cut."}, 400
+    full_prompt = _prompt_with_project_context(conn, edit["project_id"], prompt)
+    try:
+        plan = generate_rough_cut(full_prompt, clips)
+    except Exception as e:
+        conn.close()
+        return {"error": str(e)}, 502
+    max_pos = conn.execute(
+        "SELECT COALESCE(MAX(position), -1) AS m FROM timeline_items WHERE edit_id = ?",
+        (edit_id,),
+    ).fetchone()["m"]
+    for i, sel in enumerate(plan.selections):
+        conn.execute(
+            """INSERT INTO timeline_items (edit_id, clip_id, position, in_point, out_point)
+               VALUES (?, ?, ?, ?, ?)""",
+            (edit_id, sel.clip_id, max_pos + 1 + i, sel.in_point, sel.out_point),
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({"concept": plan.concept, "selections": [s.model_dump() for s in plan.selections]})
+
+
+@bp.get("/api/edits/<int:edit_id>/chat")
+def get_edit_chat(edit_id):
+    """The chat transcript + whether an undo is available."""
+    conn = get_conn()
+    msgs = conn.execute(
+        "SELECT role, content, created_at FROM edit_messages WHERE edit_id = ? ORDER BY id",
+        (edit_id,),
+    ).fetchall()
+    undo = conn.execute(
+        "SELECT COUNT(*) AS c FROM edit_snapshots WHERE edit_id = ?", (edit_id,)
+    ).fetchone()["c"]
+    conn.close()
+    return jsonify({"messages": [dict(m) for m in msgs], "can_undo": undo > 0})
+
+
+@bp.post("/api/edits/<int:edit_id>/chat")
+def chat_edit(edit_id):
+    """Apply a natural-language edit instruction to the timeline. Snapshots the
+    current timeline first (so it can be undone), then replaces it with the revision."""
+    prompt = (request.json.get("prompt") or "").strip()
+    if not prompt:
+        return {"error": "prompt is required"}, 400
+    conn = get_conn()
+    edit = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
+    if not edit:
+        conn.close()
+        return {"error": "not found"}, 404
+
+    current = conn.execute(
+        """SELECT timeline_items.clip_id, timeline_items.in_point, timeline_items.out_point,
+                  clips.file_stem, clips.description, clips.duration_s
+           FROM timeline_items JOIN clips ON clips.id = timeline_items.clip_id
+           WHERE edit_id = ? ORDER BY position""",
+        (edit_id,),
+    ).fetchall()
+    current_timeline = [dict(r) for r in current]
+    pool = _pool_for_generation(conn, [], edit["project_id"])
+
+    try:
+        result = revise_edit(prompt, current_timeline, pool)
+    except Exception as e:
+        conn.close()
+        return {"error": str(e)}, 502
+
+    # Snapshot BEFORE applying, so undo returns to the pre-prompt version.
+    _snapshot_edit(conn, edit_id, prompt)
+    _replace_timeline(conn, edit_id, result.selections)
+    conn.execute(
+        "INSERT INTO edit_messages (edit_id, role, content) VALUES (?, 'user', ?)",
+        (edit_id, prompt),
+    )
+    conn.execute(
+        "INSERT INTO edit_messages (edit_id, role, content) VALUES (?, 'assistant', ?)",
+        (edit_id, result.reply),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"reply": result.reply, "count": len(result.selections), "can_undo": True})
+
+
+@bp.post("/api/edits/<int:edit_id>/undo")
+def undo_edit(edit_id):
+    """Pop the most recent snapshot and restore the timeline to it."""
+    import json
+    conn = get_conn()
+    snap = conn.execute(
+        "SELECT * FROM edit_snapshots WHERE edit_id = ? ORDER BY id DESC LIMIT 1",
+        (edit_id,),
+    ).fetchone()
+    if not snap:
+        conn.close()
+        return {"error": "nothing to undo"}, 400
+
+    rows = json.loads(snap["data"])
+    conn.execute("DELETE FROM timeline_items WHERE edit_id = ?", (edit_id,))
+    for r in rows:
+        conn.execute(
+            "INSERT INTO timeline_items (edit_id, clip_id, position, in_point, out_point) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (edit_id, r["clip_id"], r["position"], r["in_point"], r["out_point"]),
+        )
+    conn.execute("DELETE FROM edit_snapshots WHERE id = ?", (snap["id"],))
+    # Drop the last assistant/user message pair so the transcript matches the state.
+    last = conn.execute(
+        "SELECT id FROM edit_messages WHERE edit_id = ? ORDER BY id DESC LIMIT 2",
+        (edit_id,),
+    ).fetchall()
+    for m in last:
+        conn.execute("DELETE FROM edit_messages WHERE id = ?", (m["id"],))
+    remaining = conn.execute(
+        "SELECT COUNT(*) AS c FROM edit_snapshots WHERE edit_id = ?", (edit_id,)
+    ).fetchone()["c"]
+    conn.commit()
+    conn.close()
+    return jsonify({"restored": snap["label"], "can_undo": remaining > 0})
+
+
+@bp.post("/api/generate-edit")
+def generate_edit_from_scratch():
+    """One-shot: prompt -> a brand-new edit (optionally inside a project). Returns the
+    new edit id so the caller can jump into the editor. Runs the model first so a
+    failed generation never leaves an empty edit behind."""
+    data = request.json or {}
+    prompt = (data.get("prompt") or "").strip()
+    if not prompt:
+        return {"error": "prompt is required"}, 400
+
+    clip_ids = data.get("clip_ids") or []
+    try:
+        clip_ids = [int(c) for c in clip_ids]
+    except (TypeError, ValueError):
+        return {"error": "clip_ids must be a list of integers"}, 400
+    project_id = data.get("project_id")
+
+    # Output frame/aspect for the new edit (from the editor's Frame setting). Validated
+    # against the known aspects; anything else falls back to 'source' (no reframe).
+    aspect = data.get("aspect") or "source"
+    if aspect not in ("source", *ASPECT_DIMS.keys()):
+        aspect = "source"
+
+    conn = get_conn()
+    clips = _pool_for_generation(conn, clip_ids, project_id)
+    if not clips:
+        conn.close()
+        return {"error": "No downloaded clips to assemble from. Import/pull clips into "
+                "your media folder first — catalog-only clips can't be cut."}, 400
+    full_prompt = _prompt_with_project_context(conn, project_id, prompt)
+    try:
+        plan = generate_rough_cut(full_prompt, clips)
+    except Exception as e:
+        conn.close()
+        return {"error": str(e)}, 502
+
+    # Auto-name: prefer the model's short concept line, else fall back to the prompt.
+    concept = (getattr(plan, "concept", "") or "").strip()
+    auto = concept or prompt
+    name = (data.get("name") or "").strip() or (auto[:57] + ("…" if len(auto) > 57 else ""))
+    cur = conn.execute(
+        "INSERT INTO edits (name, project_id, aspect) VALUES (?, ?, ?)",
+        (name, project_id, aspect),
+    )
+    edit_id = cur.lastrowid
+    for i, sel in enumerate(plan.selections):
+        conn.execute(
+            """INSERT INTO timeline_items (edit_id, clip_id, position, in_point, out_point)
+               VALUES (?, ?, ?, ?, ?)""",
+            (edit_id, sel.clip_id, i, sel.in_point, sel.out_point),
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({
+        "id": edit_id, "name": name, "project_id": project_id, "aspect": aspect,
+        "concept": plan.concept, "selections": [s.model_dump() for s in plan.selections],
+    })
+
+
+@bp.post("/api/edits/<int:edit_id>/items")
+def add_item(edit_id):
+    data = request.json
+    clip_id = data["clip_id"]
+    in_point = float(data.get("in_point", 0))
+    out_point = float(data.get("out_point", 0))
+    # Optional 0-based index to insert at (e.g. a drag-drop onto the timeline).
+    # Omitted -> append to the end.
+    position = data.get("position")
+    conn = get_conn()
+    max_pos = conn.execute(
+        "SELECT COALESCE(MAX(position), -1) AS m FROM timeline_items WHERE edit_id = ?",
+        (edit_id,),
+    ).fetchone()["m"]
+    cur = conn.execute(
+        """
+        INSERT INTO timeline_items (edit_id, clip_id, position, in_point, out_point)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (edit_id, clip_id, max_pos + 1, in_point, out_point),
+    )
+    new_id = cur.lastrowid
+    # If a drop index was given, splice the new item into that slot and renumber.
+    if position is not None:
+        ids = [r["id"] for r in conn.execute(
+            "SELECT id FROM timeline_items WHERE edit_id = ? ORDER BY position", (edit_id,)
+        )]
+        ids.remove(new_id)
+        idx = max(0, min(int(position), len(ids)))
+        ids.insert(idx, new_id)
+        for pos, iid in enumerate(ids):
+            conn.execute("UPDATE timeline_items SET position = ? WHERE id = ?", (pos, iid))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "item_id": new_id})
+
+
+@bp.put("/api/edits/<int:edit_id>/items/<int:item_id>")
+def update_item(edit_id, item_id):
+    data = request.json
+    fields, values = [], []
+    for key in ("in_point", "out_point", "position",
+                "crop_x", "crop_y", "crop_w", "crop_h",
+                "kb_x", "kb_y", "kb_w", "kb_h"):
+        if key in data:
+            fields.append(f"{key} = ?")
+            values.append(data[key])  # crop_*/kb_* may be null to clear
+    if not fields:
+        return {"ok": True}
+    values.append(item_id)
+    values.append(edit_id)
+    conn = get_conn()
+    conn.execute(
+        f"UPDATE timeline_items SET {', '.join(fields)} WHERE id = ? AND edit_id = ?",
+        values,
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@bp.post("/api/edits/<int:edit_id>/items/<int:item_id>/suggest-crop")
+def suggest_crop(edit_id, item_id):
+    """Have Claude (as director) propose a reframe crop for this item, based on the
+    edit's target aspect and a frame sampled at the item's in-point. Saves the crop
+    to the item and returns it. No-op error if the edit has no target aspect."""
+    conn = get_conn()
+    edit = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
+    item = conn.execute(
+        """SELECT timeline_items.*, clips.file_stem
+           FROM timeline_items JOIN clips ON clips.id = timeline_items.clip_id
+           WHERE timeline_items.id = ? AND edit_id = ?""",
+        (item_id, edit_id),
+    ).fetchone()
+    if not edit or not item:
+        conn.close()
+        return {"error": "not found"}, 404
+    aspect = (edit["aspect"] if "aspect" in edit.keys() else None) or "source"
+    if aspect == "source":
+        conn.close()
+        return {"error": "Set a target frame (e.g. 9:16) before suggesting a crop."}, 400
+    source = find_media_file(item["file_stem"])
+    if not source:
+        conn.close()
+        return {"error": f"'{item['file_stem']}' not found in MEDIA_DIR"}, 404
+
+    # Sample a frame at the item's in-point (a moment actually used in the cut).
+    ts = max(0.0, float(item["in_point"] or 0))
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            frame_path = Path(tmp) / "frame.jpg"
+            subprocess.run(
+                ["ffmpeg", "-y", "-ss", str(ts), "-i", str(source),
+                 "-frames:v", "1", str(frame_path)],
+                check=True, capture_output=True,
+            )
+            image_bytes = frame_path.read_bytes()
+        crop = propose_crop(image_bytes, aspect)
+    except Exception as e:
+        conn.close()
+        return {"error": str(e)}, 502
+
+    conn.execute(
+        """UPDATE timeline_items SET crop_x=?, crop_y=?, crop_w=?, crop_h=?
+           WHERE id=? AND edit_id=?""",
+        (crop.crop_x, crop.crop_y, crop.crop_w, crop.crop_h, item_id, edit_id),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({
+        "crop_x": crop.crop_x, "crop_y": crop.crop_y,
+        "crop_w": crop.crop_w, "crop_h": crop.crop_h,
+        "reason": crop.reason,
+    })
+
+
+@bp.post("/api/edits/<int:edit_id>/items/<int:item_id>/suggest-follow")
+def suggest_follow(edit_id, item_id):
+    """Reframe that FOLLOWS a moving subject: locate the subject at the start and end
+    of the trimmed span and animate the crop window between them (Ken Burns). Sets
+    crop_* (start) and kb_* (end); export interpolates. Falls back to a static crop
+    when the subject barely moves."""
+    conn = get_conn()
+    edit = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
+    item = conn.execute(
+        """SELECT timeline_items.*, clips.file_stem
+           FROM timeline_items JOIN clips ON clips.id = timeline_items.clip_id
+           WHERE timeline_items.id = ? AND edit_id = ?""",
+        (item_id, edit_id),
+    ).fetchone()
+    if not edit or not item:
+        conn.close()
+        return {"error": "not found"}, 404
+    aspect = (edit["aspect"] if "aspect" in edit.keys() else None) or "source"
+    if aspect == "source":
+        conn.close()
+        return {"error": "Set a target frame (e.g. 9:16) before reframing."}, 400
+    source = find_media_file(item["file_stem"])
+    if not source:
+        conn.close()
+        return {"error": f"'{item['file_stem']}' not found in MEDIA_DIR"}, 404
+
+    t_in = max(0.0, float(item["in_point"] or 0))
+    t_out = float(item["out_point"] or t_in)
+    # Sample just inside each end so we don't land on a black/transition frame.
+    span = max(0.0, t_out - t_in)
+    t0 = t_in + min(0.15, span * 0.1)
+    t1 = t_out - min(0.15, span * 0.1)
+    try:
+        start = propose_crop(_frame_at(source, t0), aspect)
+        end = propose_crop(_frame_at(source, t1), aspect)
+    except Exception as e:
+        conn.close()
+        return {"error": str(e)}, 502
+
+    # If the window hardly moves, keep it static (no kb_*) to avoid needless drift.
+    moved = (abs(start.crop_x - end.crop_x) > 0.03 or abs(start.crop_y - end.crop_y) > 0.03
+             or abs(start.crop_w - end.crop_w) > 0.03)
+    if moved:
+        conn.execute(
+            """UPDATE timeline_items
+               SET crop_x=?, crop_y=?, crop_w=?, crop_h=?, kb_x=?, kb_y=?, kb_w=?, kb_h=?
+               WHERE id=? AND edit_id=?""",
+            (start.crop_x, start.crop_y, start.crop_w, start.crop_h,
+             end.crop_x, end.crop_y, end.crop_w, end.crop_h, item_id, edit_id),
+        )
+    else:
+        conn.execute(
+            """UPDATE timeline_items
+               SET crop_x=?, crop_y=?, crop_w=?, crop_h=?, kb_x=NULL, kb_y=NULL, kb_w=NULL, kb_h=NULL
+               WHERE id=? AND edit_id=?""",
+            (start.crop_x, start.crop_y, start.crop_w, start.crop_h, item_id, edit_id),
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({
+        "motion": bool(moved),
+        "start": {"x": start.crop_x, "y": start.crop_y, "w": start.crop_w, "h": start.crop_h},
+        "end": {"x": end.crop_x, "y": end.crop_y, "w": end.crop_w, "h": end.crop_h},
+        "reason": start.reason,
+    })
+
+
+@bp.delete("/api/edits/<int:edit_id>/items/<int:item_id>")
+def delete_item(edit_id, item_id):
+    conn = get_conn()
+    conn.execute(
+        "DELETE FROM timeline_items WHERE id = ? AND edit_id = ?", (item_id, edit_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@bp.post("/api/edits/<int:edit_id>/reorder")
+def reorder_items(edit_id):
+    item_ids = request.json["item_ids"]
+    conn = get_conn()
+    for position, item_id in enumerate(item_ids):
+        conn.execute(
+            "UPDATE timeline_items SET position = ? WHERE id = ? AND edit_id = ?",
+            (position, item_id, edit_id),
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@bp.post("/api/edits/<int:edit_id>/export")
+def export_project(edit_id):
+    conn = get_conn()
+    project = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
+    if not project:
+        conn.close()
+        return {"error": "not found"}, 404
+    items = conn.execute(
+        """
+        SELECT timeline_items.*, clips.file_stem, clips.media_path
+        FROM timeline_items
+        JOIN clips ON clips.id = timeline_items.clip_id
+        WHERE edit_id = ?
+        ORDER BY position
+        """,
+        (edit_id,),
+    ).fetchall()
+    conn.close()
+
+    if not items:
+        return {"error": "timeline is empty"}, 400
+
+    # Pre-flight (synchronous, so the user gets an immediate 409): refuse to render if
+    # any clip's media is missing, rather than letting ffmpeg fail partway.
+    unresolved = []
+    plan = []
+    for item in items:
+        status, path = clip_media_status(item)
+        if status != "present":
+            unresolved.append(item["file_stem"])
+            continue
+        d = dict(item)
+        d["source"] = path
+        plan.append(d)
+    if unresolved:
+        uniq = ", ".join(dict.fromkeys(unresolved))
+        return {"error": f"Can't export — {len(unresolved)} clip(s) have missing media: "
+                         f"{uniq}. Run Verify media to relink moved files, or remove them."}, 409
+
+    # Output aspect. 'source'/None => derive ONE common frame from the first clip so
+    # mixed-orientation footage still concatenates into a valid file.
+    aspect = (project["aspect"] if "aspect" in project.keys() else None) or "source"
+    explicit_aspect = ASPECT_DIMS.get(aspect) is not None
+    if explicit_aspect:
+        dims = ASPECT_DIMS[aspect]
+    else:
+        first = _display_dims(Path(plan[0]["source"])) or (1080, 1920)
+        dims = (_even(first[0]), _even(first[1]))
+
+    # The N ffmpeg re-encodes + concat can take a while on longer timelines, so run
+    # them in a background job (same pattern as imports) and hand back a job_id the UI
+    # polls — no request timeout, live progress.
+    job_id = _new_job(f"Export · {project['name']}", "clip")
+    threading.Thread(
+        target=_run_export_job,
+        args=(job_id, project["name"], explicit_aspect, dims, plan),
+        daemon=True,
+    ).start()
+    return jsonify({"job_id": job_id})

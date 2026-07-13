@@ -14,6 +14,7 @@
       <button id="view-grid" class="active">Grid</button>
       <button id="view-map">Map</button>
       <button id="view-things">Things</button>
+      <button id="view-cuts">Cuts</button>
     </div>
     <button id="import-btn">Import</button>
     <button id="lib-settings-btn" title="View settings" aria-label="View settings">⚙</button>
@@ -87,8 +88,25 @@
 
       <p class="hint">…or paste links (one per line) — Google Drive files/folders or
         Google Photos shared albums, each shared as "anyone with the link":</p>
-      <textarea id="import-links" rows="4"
+      <textarea id="import-links" rows="3"
         placeholder="https://drive.google.com/file/d/…/view&#10;https://photos.app.goo.gl/…"></textarea>
+
+      <div id="import-meta">
+        <p class="hint import-meta-note">Both optional — name the things to look for, or
+          just give context and they'll be inferred from it.</p>
+        <label class="import-field">Things to look for <span class="import-hint">(comma-separated)</span>
+          <input id="import-things" type="text" placeholder="e.g. pipevine, oil press, monarch">
+        </label>
+        <label class="import-field">Context for this content <span class="import-hint">(things inferred from this if left blank above)</span>
+          <textarea id="import-context" rows="2"
+            placeholder="e.g. footage from the July acorn-oil pressing day"></textarea>
+        </label>
+        <label class="import-field">Add to campaign <span class="import-hint">(optional)</span>
+          <select id="import-project">
+            <option value="">None</option>
+          </select>
+        </label>
+      </div>
 
       <button id="import-submit">Import</button>
 
@@ -178,6 +196,12 @@
       <div id="things-clips-head">Select a thing to see the clips it appears in.</div>
       <div id="things-clips-grid"></div>
     </div>
+  </div>
+
+  <!-- Cuts view: every generated/edited timeline (assigned or orphaned), browsable. -->
+  <div id="cuts-view" class="hidden">
+    <div id="cuts-empty" class="hidden">No cuts yet — assemble one from the grid, and it'll show up here.</div>
+    <div id="cuts-grid"></div>
   </div>
 
   <div id="info-overlay" class="hidden">

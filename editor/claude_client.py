@@ -61,7 +61,9 @@ def revise_edit(instruction: str, current_timeline: list[dict], clips: list[dict
         "(clip_id + in/out points in seconds within each clip's own duration). Only use "
         "clip ids from the catalog. Preserve the parts of the timeline the user didn't "
         "ask to change (keep their order and in/out points). Keep cuts tight and "
-        "purposeful. Also give a short, friendly one- or two-sentence reply describing "
+        "purposeful. When a clip lists timestamped 'moment' lines, place in/out points "
+        "around the best-matching moment rather than defaulting to the start of the "
+        "clip. Also give a short, friendly one- or two-sentence reply describing "
         "what you changed.\n\n"
         f"CURRENT TIMELINE (in order):\n{current}\n\n"
         f"CLIP CATALOG (available to pull from):\n{catalog}\n\n"
@@ -86,6 +88,14 @@ class ContentSuggestions(BaseModel):
     ideas: List[ContentIdea]
 
 
+class Region(BaseModel):
+    label: str            # what's in this region (a matched thing's name, or a notable subject)
+    x: float              # left edge, fraction of frame width  (0..1, top-left origin)
+    y: float              # top edge,  fraction of frame height (0..1)
+    w: float              # width,  fraction of frame width
+    h: float              # height, fraction of frame height
+
+
 class VisualAnalysis(BaseModel):
     description: str
     category: str
@@ -93,6 +103,9 @@ class VisualAnalysis(BaseModel):
     # Names (verbatim from the provided watchlist) of target things visible in the
     # frame. Empty when no watchlist is given or nothing matches.
     matched_things: List[str] = []
+    # Where notable subjects (and any matched things) sit in the frame, as normalized
+    # boxes — so a later reframe/crop to a different aspect can keep them in shot.
+    regions: List[Region] = []
 
 
 class SceneSegment(BaseModel):
@@ -485,6 +498,21 @@ def _format_clip_catalog(clips: list[dict]) -> str:
             line += f" quality={c['quality']}/100"
         if c.get("sharpness") is not None:
             line += f" sharpness={c['sharpness']}"
+        # Availability: a non-local clip can't be cut. The pool builder already
+        # excludes these, but flag it so the model never leans on a ghost if one
+        # ever reaches the catalog.
+        if c.get("available_locally") is False:
+            line += " available_locally=false(NOT DOWNLOADED — do not use)"
+        # Deep-index timeline: timestamped moments within the clip (scene spans,
+        # detected actions, speech). This is what lets the model cut TO a moment
+        # ("the caterpillar close-up at 4.2s") instead of blindly taking the front
+        # of the clip.
+        for m in c.get("moments") or []:
+            what = (m.get("text") or m.get("label") or "").strip()
+            if not what:
+                continue
+            tag = "" if m.get("kind") == "scene" else f" [{m['kind']}]"
+            line += f"\n    moment {m['t_start']:.1f}-{m['t_end']:.1f}s{tag}: {what}"
         lines.append(line)
     return "\n".join(lines)
 
@@ -498,6 +526,12 @@ def generate_rough_cut(prompt: str, clips: list[dict]) -> RoughCutPlan:
         "clip's own duration) for each. Only use clip ids from the catalog. Keep the cut "
         "reasonably tight -- prefer fewer, well-chosen clips over including everything "
         "loosely related.\n\n"
+        "Choosing in/out points: many clips list timestamped 'moment' lines (scene "
+        "spans, actions, speech). When present, cut TO the best-matching moment -- set "
+        "in/out around its timestamps rather than defaulting to the start of the clip. "
+        "For clips without moments, still pick a plausible window (e.g. skip a shaky "
+        "first second on long handheld clips). Vary shot lengths to fit the content "
+        "instead of giving every clip an identical duration.\n\n"
         f"Clip catalog:\n{catalog}\n\n"
         f"Requested video: {prompt}"
     )
@@ -565,9 +599,19 @@ def analyze_frame(
             "list empty if none appear.\n"
             f"{_format_watchlist(watchlist)}"
         )
+    message += (
+        "\n\nAlso return `regions`: for each notable subject in the frame (and every "
+        "matched thing above), give a bounding box locating it, as fractions of the "
+        "frame with a top-left origin — x,y = the box's top-left corner, w,h = its "
+        "width and height, all in 0..1. Use the thing's exact name as the region label "
+        "when it corresponds to a matched thing; otherwise a short subject label. "
+        "Include only genuinely notable subjects (skip background clutter); it's fine "
+        "to return an empty list if nothing stands out. These boxes are used to reframe "
+        "or crop the video to other aspect ratios without cutting the subject."
+    )
     response = get_client().messages.parse(
         model=MODEL,
-        max_tokens=1024,
+        max_tokens=1500,
         messages=[{
             "role": "user",
             "content": [

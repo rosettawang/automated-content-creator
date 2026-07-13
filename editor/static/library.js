@@ -409,6 +409,10 @@ function showInfo(clip) {
       video.style.display = "none";
       thumb.src = `/api/clips/${clip.id}/thumbnail`;
       thumb.style.display = "";
+      if (window.showToast) {
+        showToast(`${clip.file_stem}: can't preview this format — showing the still. A web-safe copy is being prepared.`,
+                  { type: "warn" });
+      }
     };
   } else {
     // Video not downloaded: show the keyframe.
@@ -425,6 +429,25 @@ function showInfo(clip) {
   field(dl, "Filename", clip.file_stem);
   field(dl, "Type", clip.kind === "photo" ? "Photo" : "Video");
   field(dl, "Available", clip.available_locally ? "Local" : "Not downloaded");
+  if (!clip.available_locally) {
+    const dt = document.createElement("dt");
+    dt.textContent = "Source";
+    const dd = document.createElement("dd");
+    if (clip.can_redownload) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "redl-btn";
+      btn.textContent = `⤓ Re-download from ${clip.source_kind}`;
+      btn.onclick = () => redownloadClip(clip, btn);
+      dd.appendChild(btn);
+    } else {
+      dd.textContent = clip.source_kind
+        ? `from ${clip.source_kind} — no link recorded, import manually`
+        : "no source recorded — import manually";
+    }
+    dl.appendChild(dt);
+    dl.appendChild(dd);
+  }
   field(dl, "Duration", clip.kind === "photo" ? null : (clip.duration_s ? `${clip.duration_s}s` : null));
   field(dl, "Status", clip.status);
   field(dl, "Location", clip.location);
@@ -745,11 +768,32 @@ const importLinks = document.getElementById("import-links");
 const importResult = document.getElementById("import-result");
 const fileChosen = document.getElementById("file-chosen");
 const importSubmit = document.getElementById("import-submit");
+const importThings = document.getElementById("import-things");
+const importContext = document.getElementById("import-context");
+const importProject = document.getElementById("import-project");
 
 let selectedFiles = []; // File[] staged for upload
 
+// Fill the campaign dropdown from the current projects (kept optional).
+async function populateImportProjects() {
+  try {
+    const res = await fetch("/api/projects");
+    const projects = await res.json();
+    const keep = importProject.value;
+    importProject.innerHTML = '<option value="">None</option>';
+    projects.forEach((p) => {
+      const o = document.createElement("option");
+      o.value = p.id;
+      o.textContent = p.name;
+      importProject.appendChild(o);
+    });
+    importProject.value = keep;
+  } catch { /* leave the "None" default */ }
+}
+
 function openImport() {
   importOverlay.classList.remove("hidden");
+  populateImportProjects();
 }
 
 function closeImport() {
@@ -758,6 +802,9 @@ function closeImport() {
   selectedFiles = [];
   fileInput.value = "";
   importLinks.value = "";
+  importThings.value = "";
+  importContext.value = "";
+  importProject.value = "";
   importResult.textContent = "";
   document.getElementById("import-progress").classList.add("hidden");
   fileChosen.classList.add("hidden");
@@ -884,6 +931,38 @@ async function runServerJob(endpoint, body) {
   }
 }
 
+// Re-download a not-local clip from its recorded source, poll the job, then refresh
+// the library + info panel so it flips to "Local". Photos re-fetches the album and
+// relinks by filename; Drive re-pulls the exact file.
+async function redownloadClip(clip, btnEl) {
+  const label = btnEl ? btnEl.textContent : null;
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = "Re-downloading…"; }
+  try {
+    const res = await fetch(`/api/clips/${clip.id}/pull`, { method: "POST" });
+    const started = await res.json();
+    if (!res.ok) throw new Error(started.error || res.statusText);
+    if (started.job_id) {
+      for (;;) {
+        const r = await fetch(`/api/import-jobs/${started.job_id}`);
+        const job = await r.json();
+        if (!r.ok) throw new Error(job.error || r.statusText);
+        renderJobProgress(job);
+        if (job.finished) { if (job.error) throw new Error(job.error); break; }
+        await sleep(700);
+      }
+      setProgress(null, "");
+    }
+    await loadClips();
+    applyFilter();
+    broadcastClipUpdated(clip.id);
+    const fresh = allClips.find((c) => c.id === clip.id);
+    if (fresh) showInfo(fresh);   // reopen the panel with refreshed availability
+  } catch (err) {
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = label; }
+    alert(`Couldn't re-download: ${err.message}`);
+  }
+}
+
 // Upload files with a live byte-level progress bar (the upload is the slow part
 // client-side, so XHR upload events give real progress + ETA here).
 function uploadFilesWithProgress(files) {
@@ -934,24 +1013,86 @@ importSubmit.addEventListener("click", async () => {
   showProgressUI();
   const parts = [];
   let anyError = false;
+  const stems = new Set(); // clips this import brought into the library
+
+  // Collect the file_stems that ended up in the library, so batch context/campaign
+  // land on exactly these clips. A duplicate points at the clip already stored.
+  const collect = (results) => {
+    results.forEach((r) => {
+      if (r.status === "added_new_clip" || r.status === "matched_existing") {
+        if (r.file_stem) stems.add(r.file_stem);
+      } else if (r.status === "duplicate" && r.duplicate_of) {
+        stems.add(r.duplicate_of);
+      }
+    });
+  };
 
   try {
+    // Watched "things to look for" are created FIRST, so they're in the active
+    // watchlist before the just-imported clips get indexed. The two fields are
+    // interchangeable: if you name things explicitly we use those; if you only
+    // give context, we infer the things from it.
+    const context = importContext.value.trim();
+    const wantThings = importThings.value.split(",").map((s) => s.trim()).filter(Boolean);
+    if (wantThings.length) {
+      for (const name of wantThings) {
+        try {
+          await fetch("/api/things", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+          }); // 409 (already exists) is fine — it's in the watchlist either way
+        } catch { /* non-fatal */ }
+      }
+    } else if (context) {
+      setProgress(null, "Inferring things to look for from your context…");
+      try {
+        const res = await fetch("/api/things/infer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ context }),
+        });
+        const body = await res.json();
+        if (res.ok && body.things?.length) parts.push(`inferred: ${body.things.join(", ")}`);
+      } catch { /* non-fatal — import still proceeds */ }
+    }
+
     if (selectedFiles.length) {
       const results = await uploadFilesWithProgress(selectedFiles);
+      collect(results);
       parts.push(summarize(results));
       anyError = anyError || results.some((r) => r.status === "error");
     }
 
     if (urls.length) {
       const results = await runServerJob("/api/drive-import", { urls });
+      collect(results);
       parts.push(summarize(results));
       anyError = anyError || results.some((r) => r.status === "error");
     }
 
     if (photoUrls.length) {
       const results = await runServerJob("/api/photos-import", { urls: photoUrls });
+      collect(results);
       parts.push(summarize(results));
       anyError = anyError || results.some((r) => r.status === "error");
+    }
+
+    // Apply batch context + campaign to the clips that came in.
+    const projectId = importProject.value;
+    if (stems.size && (context || projectId)) {
+      const res = await fetch("/api/import-finalize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file_stems: [...stems], context, project_id: projectId || null }),
+      });
+      const fin = await res.json();
+      if (res.ok) {
+        const extra = [];
+        if (fin.context_applied) extra.push("context added");
+        if (fin.added_to_project) extra.push(`${fin.added_to_project} added to campaign`);
+        if (extra.length) parts.push(extra.join(", "));
+      }
     }
 
     importProgress.classList.add("hidden");

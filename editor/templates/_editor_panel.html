@@ -17,6 +17,7 @@
     <span id="generate-result" class="status"></span>
     <div class="spacer"></div>
     <button id="export-btn">Export</button>
+    <button id="export-cancel" class="hidden">Cancel</button>
     <span id="export-result" class="status"></span>
     <div id="settings-wrap">
       <button id="settings-btn" title="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded="false">⚙</button>
@@ -32,6 +33,11 @@
             <option value="16:9">16:9 landscape</option>
           </select>
         </label>
+        <div class="settings-row" title="Re-check every clip's file on disk; relink files that moved by content hash">
+          <span class="settings-label">Media</span>
+          <button id="verify-media-btn" type="button">Verify / relink</button>
+        </div>
+        <div id="verify-media-status" class="settings-substatus"></div>
       </div>
     </div>
   </div>
@@ -108,10 +114,14 @@
     <div id="program-panel" class="panel">
       <div class="panel-head">Program</div>
       <div id="program-monitor">
-        <video id="program-video"></video>
+        <!-- Double-buffered playback: two videos alternate so the next segment is
+             preloaded/sought while the current one plays (no stall at cuts). -->
+        <video id="program-video" class="pv-active" preload="auto" playsinline></video>
+        <video id="program-video-b" preload="auto" playsinline muted></video>
         <div id="crop-overlay" class="hidden">
           <div id="crop-box"><div id="crop-grid"></div></div>
         </div>
+        <div id="program-msg" class="hidden"></div>
       </div>
       <div id="crop-controls" class="hidden">
         <span class="crop-title">Frame ✂</span>

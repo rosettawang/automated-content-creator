@@ -28,7 +28,10 @@ CREATE TABLE IF NOT EXISTS clips (
     width INTEGER,
     height INTEGER,
     sharpness REAL,
-    quality INTEGER
+    quality INTEGER,
+    -- Provenance: how to get the file back if it's not local (see migration note).
+    source_kind TEXT,
+    source_url TEXT
 );
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -129,6 +132,27 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT
 );
 
+-- Durable background-job records (import, index, faces, motion, deep-index, export…).
+-- The live copy lives in memory for fast per-item progress; this table is written
+-- through on transitions + throttled progress so job state survives a restart
+-- (results stay readable; unfinished rows are marked interrupted on startup).
+CREATE TABLE IF NOT EXISTS jobs (
+    id TEXT PRIMARY KEY,
+    label TEXT,
+    unit TEXT,
+    phase TEXT,
+    total INTEGER,
+    done INTEGER DEFAULT 0,
+    current TEXT,
+    error TEXT,
+    cancelled INTEGER DEFAULT 0,
+    finished INTEGER DEFAULT 0,
+    results TEXT,                         -- JSON, populated on finish
+    started_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_finished ON jobs(finished);
+
 -- Semantic-search vectors: one embedding per clip over its combined text.
 -- text_hash lets us skip re-embedding clips whose text hasn't changed.
 CREATE TABLE IF NOT EXISTS clip_embeddings (
@@ -187,6 +211,12 @@ def get_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # WAL lets readers and a writer proceed concurrently; busy_timeout makes the
+    # ~14 background job threads + request threads wait for a lock instead of
+    # failing immediately with "database is locked". WAL persists on the db file
+    # (idempotent to set per-connection); busy_timeout is per-connection.
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 
 
@@ -213,7 +243,17 @@ def init_db():
     if "content_hash" not in existing_cols:
         conn.execute("ALTER TABLE clips ADD COLUMN content_hash TEXT")
     for col, typ in (("width", "INTEGER"), ("height", "INTEGER"),
-                     ("sharpness", "REAL"), ("quality", "INTEGER")):
+                     ("sharpness", "REAL"), ("quality", "INTEGER"),
+                     # Media-presence tracking: last-known-good absolute path, when it
+                     # was last verified on disk, and the verified state.
+                     ("media_path", "TEXT"), ("media_checked_at", "TEXT"),
+                     ("media_status", "TEXT"),
+                     # Provenance: where this clip's file came from, so a missing/absent
+                     # file can be re-downloaded. source_kind ∈ drive|photos|zip|local|
+                     # upload; source_url is the remote link (Drive file/folder, or the
+                     # Google Photos album) when there is one. Metadata-only catalog rows
+                     # keep their provenance even with no local file.
+                     ("source_kind", "TEXT"), ("source_url", "TEXT")):
         if col not in existing_cols:
             conn.execute(f"ALTER TABLE clips ADD COLUMN {col} {typ}")
     project_cols = {row["name"] for row in conn.execute("PRAGMA table_info(projects)")}

@@ -98,6 +98,9 @@ input, select, textarea {
   gap: 0.75rem;
 }
 .settings-row .settings-label { font-size: 0.85rem; color: #ddd; }
+.settings-substatus { font-size: 0.75rem; color: #9a9a9a; margin-top: 0.3rem; word-break: break-word; }
+.settings-substatus.has-missing { color: #e0a060; }
+#verify-media-btn { font-size: 0.8rem; padding: 0.3rem 0.6rem; }
 #aspect-select {
   font-size: 0.82rem;
   padding: 0.3rem 0.4rem;
@@ -177,6 +180,8 @@ input, select, textarea {
   max-width: 16rem;
 }
 #edit-name-input.hidden { display: none; }
+
+#source-info.load-error { color: #e08080; }
 
 #generate-prompt { width: 22rem; }
 #export-btn { background: #3a5c3a; }
@@ -375,8 +380,34 @@ body.row-resizing { cursor: row-resize; user-select: none; }
   position: relative;
   overflow: hidden;
 }
-/* Letterbox the video: fill the monitor while preserving aspect, centered. */
-#program-video { max-height: 100%; max-width: 100%; width: auto; height: auto; }
+/* Letterbox both playback buffers: fill the monitor preserving aspect, centered.
+   Stacked absolutely; only the .pv-active one is visible (the other preloads). */
+#program-video, #program-video-b {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  max-height: 100%; max-width: 100%; width: auto; height: auto;
+  background: #000;
+  visibility: hidden;
+}
+#program-video.pv-active, #program-video-b.pv-active { visibility: visible; }
+
+/* Overlaid message when a segment can't play (media missing / unsupported). */
+#program-msg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.72);
+  color: #e8c9a0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  z-index: 5;
+}
+#program-msg.hidden { display: none; }
 
 /* ---- reframe crop overlay ---- */
 #crop-overlay {
@@ -515,6 +546,32 @@ body.row-resizing { cursor: row-resize; user-select: none; }
   user-select: none;
 }
 .tl-clip.selected { border-color: #7fd0a0; box-shadow: 0 0 0 1px #7fd0a0 inset; }
+/* Timeline item whose media file isn't in MEDIA_DIR: visibly different so a
+   broken cut is obvious at a glance, not discovered at play/export time. */
+.tl-clip.not-local {
+  background: repeating-linear-gradient(-45deg, #4d3340, #4d3340 8px, #3f2a35 8px, #3f2a35 16px);
+  border-color: #8a5566;
+}
+.tl-clip.not-local.selected { border-color: #e0a0b0; box-shadow: 0 0 0 1px #e0a0b0 inset; }
+.tl-clip .tl-warn { color: #ffb3c0; font-size: 0.64rem; font-weight: 600; white-space: nowrap; }
+/* Re-download chip on a not-local timeline clip (only shown when a source is known). */
+.tl-clip .tl-redl {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  z-index: 3;
+  font-size: 0.62rem;
+  line-height: 1;
+  padding: 0.2rem 0.35rem;
+  border-radius: 4px;
+  border: 1px solid #b06a7c;
+  background: #6a3546;
+  color: #ffdbe3;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tl-clip .tl-redl:hover { background: #813f54; }
+.tl-clip .tl-redl:disabled { opacity: 0.6; cursor: default; }
 .tl-clip .tl-label {
   padding: 0.3rem 0.4rem;
   font-size: 0.72rem;

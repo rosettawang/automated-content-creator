@@ -309,6 +309,46 @@ body {
   margin-bottom: 0.75rem;
 }
 
+#import-meta {
+  border-top: 1px solid #383838;
+  margin: 0.4rem 0 0.9rem;
+  padding-top: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.import-field {
+  display: block;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #999;
+}
+
+.import-hint {
+  text-transform: none;
+  letter-spacing: 0;
+  color: #777;
+  font-size: 0.72rem;
+}
+
+.import-field input,
+.import-field textarea,
+.import-field select {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0.3rem;
+  font-size: 0.85rem;
+  padding: 0.45rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #444;
+  background: #1e1e1e;
+  color: #eee;
+  resize: vertical;
+}
+
 #import-submit {
   font-size: 0.85rem;
   padding: 0.45rem 0.8rem;
@@ -451,8 +491,74 @@ body {
 #grid.hidden,
 #map-view.hidden,
 #things-view.hidden,
+#cuts-view.hidden,
+#cuts-empty.hidden,
 #map-panel.hidden,
 #map-empty.hidden { display: none; }
+
+/* ---- cuts view ---- */
+#cuts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
+  padding: 1rem;
+}
+#cuts-empty { padding: 1.5rem 1rem; color: #999; font-size: 0.9rem; }
+
+.cut-card {
+  background: #2a2a2a;
+  border: 1px solid #383838;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.cut-thumb {
+  aspect-ratio: 16 / 9;
+  background: #111;
+  cursor: pointer;
+  position: relative;
+}
+.cut-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cut-thumb.noimg::after {
+  content: "▶";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #555;
+  font-size: 1.6rem;
+}
+
+.cut-body { padding: 0.6rem 0.7rem; display: flex; flex-direction: column; gap: 0.4rem; }
+.cut-name { font-size: 0.9rem; font-weight: 600; color: #eee; word-break: break-word; }
+.cut-meta { font-size: 0.78rem; color: #999; }
+
+.cut-assign {
+  font-size: 0.78rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: 6px;
+  border: 1px solid #444;
+  background: #1e1e1e;
+  color: #ddd;
+}
+
+.cut-actions { display: flex; gap: 0.4rem; margin-top: 0.2rem; }
+.cut-actions button {
+  flex: 1;
+  font-size: 0.78rem;
+  padding: 0.35rem 0.4rem;
+  border-radius: 6px;
+  border: 1px solid #444;
+  background: #2c2c2c;
+  color: #eee;
+  cursor: pointer;
+}
+.cut-actions button:hover { background: #383838; }
+.cut-actions .cut-delete { border-color: #6a4444; background: #3a2626; color: #e8b0b0; }
+.cut-actions .cut-delete:hover { background: #4a2e2e; }
 
 /* ---- things view ---- */
 #things-view {
@@ -727,6 +833,16 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 1rem;
+}
+
+/* Thumbnail + region-box overlay wrapper. */
+#things-clips-grid .shot { position: relative; line-height: 0; }
+#things-clips-grid .region-box {
+  position: absolute;
+  border: 2px solid #f5c542;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 0 6px rgba(245, 197, 66, 0.5);
+  pointer-events: none;
 }
 
 /* ---- view toggle ---- */
@@ -1280,6 +1396,19 @@ body {
   overflow-y: auto;
   white-space: pre;
 }
+
+/* Re-download button in the clip info panel (shown for not-local clips with a source). */
+.redl-btn {
+  font-size: 0.78rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 5px;
+  border: 1px solid #b06a7c;
+  background: #6a3546;
+  color: #ffdbe3;
+  cursor: pointer;
+}
+.redl-btn:hover { background: #813f54; }
+.redl-btn:disabled { opacity: 0.6; cursor: default; }
 
 /* Embedded in the workspace shell: hide redundant in-page nav + title. */
 html.embedded #nav-links,
