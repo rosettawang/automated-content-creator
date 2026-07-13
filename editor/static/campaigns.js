@@ -5,6 +5,19 @@ function escapeText(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// A one-line card summary from the markdown context brief: skip headings/blank
+// lines, take the first real sentence-ish line, trimmed to a tidy length.
+function contextSummary(doc, max = 160) {
+  if (!doc) return "";
+  const line = doc.split("\n")
+    .filter((l) => !/^\s*#/.test(l))                 // skip markdown headings (# Campaign: …)
+    .map((l) => l.replace(/^[>\-*\s]+/, "")          // strip list/quote marks
+                 .replace(/\*\*/g, "").trim())       // drop bold markers
+    .find((l) => l.length > 0);
+  if (!line) return "";
+  return line.length > max ? line.slice(0, max - 1).trimEnd() + "…" : line;
+}
+
 let editsByCampaign = {}; // campaign_id (or "" for unassigned) -> [edit, ...]
 let editingId = null; // null = creating, otherwise editing this campaign id
 
@@ -37,8 +50,12 @@ function render() {
 
     const desc = document.createElement("div");
     desc.className = "campaign-desc";
-    desc.textContent = p.description || "No description yet.";
-    if (!p.description) desc.classList.add("muted");
+    // Prefer a manual description; otherwise fall back to a summary of the living
+    // context brief the chat maintains, so a campaign with real context doesn't
+    // read as empty.
+    const summary = (p.description || "").trim() || contextSummary(p.context_doc);
+    desc.textContent = summary || "No description yet.";
+    if (!summary) desc.classList.add("muted");
 
     const meta = document.createElement("div");
     meta.className = "campaign-meta";
