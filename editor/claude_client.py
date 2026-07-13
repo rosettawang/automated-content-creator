@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from typing import List
+from typing import List, Optional
 
 from anthropic import Anthropic
 from pydantic import BaseModel
@@ -366,38 +366,68 @@ def infer_campaign_things(name: str, description: str = "") -> CampaignThings:
     return response.parsed_output
 
 
+class CampaignChatResult(BaseModel):
+    reply: str                                  # the conversational answer to show
+    context_doc: Optional[str] = None           # full rewritten campaign context doc,
+                                                 # or null if this turn didn't change it
+    recommend_clip_ids: List[int] = []          # clips (by id, from the catalog) to
+                                                 # suggest ADDING to the campaign
+    recommend_reason: Optional[str] = None       # one line explaining the recommendation
+
+
 def campaign_chat(
     project: dict,
     things: list[dict],
-    clips: list[dict],
+    in_campaign: list[dict],
+    catalog: list[dict],
     history: list[dict],
     user_message: str,
-) -> str:
-    """Answer a question / brainstorm about a specific campaign, grounded in its
-    description, watched things, and the clips currently in it. `history` is a list
-    of {role, content} turns (excluding the new user_message)."""
+) -> CampaignChatResult:
+    """Assist with ONE campaign. Grounded in its description + evolving context doc,
+    its watched things, the clips already in it, and the FULL clip catalog (so it can
+    recommend whole GROUPS of clips to add). Returns structured output: a reply, an
+    optionally-updated context document, and an optional set of recommended clip ids.
+
+    `in_campaign` = clips already in the campaign; `catalog` = every clip available.
+    `history` = prior {role, content} turns (excluding the new user_message)."""
     watch = _format_watchlist(things) if things else "(none yet)"
-    catalog = _format_clip_catalog(clips) if clips else "(no clips added to this campaign yet)"
+    have = _format_clip_catalog(in_campaign) if in_campaign else "(none yet)"
+    all_clips = _format_clip_catalog(catalog) if catalog else "(catalog empty)"
+    ctx_doc = (project.get("context_doc") or "").strip() or "(empty — start building it)"
+
     system = (
         "You are a creative producer assisting with ONE video campaign. Be concrete and "
-        "concise. Ground every suggestion in the campaign's actual footage when relevant, "
-        "referring to clips by their description. When footage is missing for an idea, say "
-        "what to shoot. Don't invent clips that aren't listed.\n\n"
+        "concise, and ground everything in the campaign's ACTUAL footage — refer to clips "
+        "by description; when footage is missing for an idea, say what to shoot; never "
+        "invent clips.\n\n"
+        "You maintain a living CONTEXT DOCUMENT for this campaign — a short evolving brief "
+        "(subject, angle, tone, audience, decisions so far, what's still needed). Whenever "
+        "the conversation establishes or changes something material, return the FULL "
+        "rewritten context_doc (keep it tight — a few short sections, not a transcript). If "
+        "nothing material changed this turn, return null for context_doc.\n\n"
+        "You can recommend whole GROUPS of clips to add to the campaign. When the user asks "
+        "to pull in footage (e.g. 'add the pipevine clips', 'everything from the oil-press "
+        "shoot', 'all the butterfly stuff') or when a group clearly fits, put the matching "
+        "clip ids from the FULL CATALOG in recommend_clip_ids and a one-line reason. Only "
+        "recommend; the user confirms. Leave it empty when not recommending clips. Never "
+        "recommend clips already in the campaign.\n\n"
         f"Campaign: {project.get('name','')}\n"
         f"About: {project.get('description','') or '(no description)'}\n\n"
-        f"Watched things for this campaign:\n{watch}\n\n"
-        f"Clips currently in this campaign:\n{catalog}"
+        f"CONTEXT DOCUMENT (current):\n{ctx_doc}\n\n"
+        f"Watched things:\n{watch}\n\n"
+        f"Clips ALREADY in this campaign:\n{have}\n\n"
+        f"FULL CLIP CATALOG (recommend_clip_ids must come from here):\n{all_clips}"
     )
     messages = [{"role": m["role"], "content": m["content"]} for m in history]
     messages.append({"role": "user", "content": user_message})
-    response = get_client().messages.create(
+    response = get_client().messages.parse(
         model=MODEL,
-        max_tokens=2000,
+        max_tokens=3000,
         system=system,
         messages=messages,
+        output_format=CampaignChatResult,
     )
-    # Concatenate any text blocks in the reply.
-    return "".join(b.text for b in response.content if getattr(b, "type", None) == "text").strip()
+    return response.parsed_output
 
 
 def classify_thing_kind(name: str, description: str = "") -> str:
