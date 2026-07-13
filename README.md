@@ -40,8 +40,9 @@ This opens **one native window** (via `pywebview`), not browser tabs — the **C
 shell at `/studio`, which hosts the Clip Library, Editor, and Campaigns as panels you open,
 close, and resize from a left rail. It's backed by the Flask process (`app.py`) that
 `desktop.py` runs in a background thread. If you'd rather use a browser tab (e.g. for devtools),
-run `python3.11 app.py` and open `http://127.0.0.1:5001/studio`. The individual panels are also
-served standalone for deep links — `/` (editor), `/library`, `/projects` (campaigns).
+run `python3.11 app.py` and open `http://127.0.0.1:5001/studio`. `/studio` is the single shell;
+the old per-page routes (`/`, `/library`, `/campaigns`) now redirect into it, preserving deep-link
+query strings (`/?edit=<id>`, `/?campaign=<id>`).
 
 - **Clip Library window** — a thumbnail grid of every indexed clip with search and a per-clip
   info panel. This is the browse/catalog view, and it's also a launch point for a cut: type

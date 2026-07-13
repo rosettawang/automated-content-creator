@@ -100,6 +100,14 @@ Owner decision on review item #2 (architecture): **do a full `project` → `camp
 
 **Hard constraint / why not yet fully executed:** a 416-site rewrite across app.py/db.py/library.js/partials cannot run concurrently with the parallel session that has those same files uncommitted — whoever saves second clobbers the other, and the parallel session's uncommitted P0 silent-failure fixes would be at risk. This pass must be serialized (sole writer). README route docs were already corrected this session (safe, uncontended).
 
+### DONE (2026-07-13, branch `refactor/project-to-campaign`)
+Executed once the parallel session's blueprint split was committed (working tree clean). Checkpoint commit first, then:
+- **Rename:** case-aware `project`→`campaign` sweep across blueprints/, core.py, db.py, claude_client.py, mcp_server.py, migrate_xlsx.py, all panel JS/CSS/partials (guarded `pyproject`). Files renamed: `projects.js`→`campaigns.js`, `projects.css`→`campaigns.css`, `projects.html`→`campaigns.html`. `PANEL_BUNDLES`/routes updated.
+- **DB migration:** `_migrate_project_to_campaign()` in `init_db` renames the 4 tables + `project_id`→`campaign_id` columns in place before CREATE-IF-NOT-EXISTS. Verified data intact (4 campaigns, 21 campaign_things, edits.campaign_id).
+- **Shell collapse:** `/`, `/library`, `/campaigns` → 302 to `/studio` (query preserved); standalone wrappers deleted; `/studio` is the only shell. Deep links verified: `/?edit=18`→`/studio?edit=18` loads the edit; `?project=` kept as a back-compat alias of `?campaign=` in app.js.
+- **Verified:** all routes 200, `/api/campaigns` returns data, bundles + campaigns.css load, no console errors, studio renders Library+Editor.
+- **Follow-up (deliberate):** in-studio cut/assemble nav still does a full `location.href` reload (redirects correctly but reloads the shell) instead of focusing the Editor panel in place.
+
 On top of that, this session added the visibility layer (`static/app.js`, `static/style.css`):
 
 - Non-local timeline clips render with a red hatched background and a "⚠ not local" badge (tooltip explains how to fix).

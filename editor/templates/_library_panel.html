@@ -1,23 +1,28 @@
   <div id="library-header">
-    <h1>Clip Library</h1>
-    <nav id="nav-links">
-      <a href="/">Editor</a>
-      <a href="/library" class="active">Clip Library</a>
-      <a href="/campaigns">Campaigns</a>
-    </nav>
-    <select id="campaign-filter" title="Filter by campaign">
-      <option value="">All clips</option>
-    </select>
-    <input id="lib-search" placeholder="search description / category / tags / filename">
-    <span id="count"></span>
-    <div id="view-toggle">
-      <button id="view-grid" class="active">Grid</button>
-      <button id="view-map">Map</button>
-      <button id="view-things">Things</button>
-      <button id="view-cuts">Cuts</button>
+    <div class="lib-header-row lib-header-top">
+      <h1>Clip Library</h1>
+      <nav id="nav-links">
+        <a href="/">Editor</a>
+        <a href="/library" class="active">Clip Library</a>
+        <a href="/campaigns">Campaigns</a>
+      </nav>
+      <span class="lib-header-spacer"></span>
+      <div id="view-toggle">
+        <button id="view-grid" class="active">Grid</button>
+        <button id="view-map">Map</button>
+        <button id="view-things">Things</button>
+        <button id="view-cuts">Cuts</button>
+      </div>
+      <button id="import-btn">Import</button>
+      <button id="lib-settings-btn" title="View settings" aria-label="View settings">⚙</button>
     </div>
-    <button id="import-btn">Import</button>
-    <button id="lib-settings-btn" title="View settings" aria-label="View settings">⚙</button>
+    <div class="lib-header-row lib-header-bottom">
+      <select id="campaign-filter" title="Filter by campaign">
+        <option value="">All clips</option>
+      </select>
+      <input id="lib-search" placeholder="search description / category / tags / filename">
+      <span id="count"></span>
+    </div>
     <input id="file-input" type="file" multiple accept="video/*,image/*,.zip" hidden>
   </div>
 

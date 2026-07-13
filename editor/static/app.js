@@ -1120,7 +1120,8 @@ window.addEventListener("resize", () => { if (currentEditId) renderTimeline(); }
 //   /?campaign=<id> open into a campaign (its first edit)
 const params = new URLSearchParams(location.search);
 const requestedEdit = params.get("edit");
-const requestedCampaign = params.get("campaign");
+// `project` kept as a backward-compat alias for the renamed `campaign` param.
+const requestedCampaign = params.get("campaign") || params.get("project");
 
 // ---- live refresh: auto-surface edits created elsewhere (e.g. via the MCP) ----
 // Both the desktop UI and the MCP write to the same backend, but this window only

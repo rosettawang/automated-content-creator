@@ -11,13 +11,23 @@ body {
   position: sticky;
   top: 0;
   background: #1e1e1e;
-  padding: 1rem;
+  padding: 0.7rem 1rem;
   border-bottom: 1px solid #333;
   display: flex;
-  align-items: center;
-  gap: 1rem;
+  flex-direction: column;
+  gap: 0.55rem;
   z-index: 10;
 }
+
+/* Two rows: (1) nav + view/import/settings, (2) campaign filter + search. Each
+   row wraps on its own so a narrow panel never clips controls off the edge. */
+.lib-header-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.lib-header-spacer { flex: 1; }
 
 #library-header h1 {
   font-size: 1.1rem;
