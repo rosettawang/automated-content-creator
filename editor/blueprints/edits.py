@@ -7,26 +7,26 @@ bp = Blueprint("edits", __name__)
 @bp.get("/api/edits")
 def list_edits():
     """List edits (cuts) with enough to browse them: campaign name, total trimmed
-    duration, clip count, and the first clip (for a thumbnail). No project filter =>
+    duration, clip count, and the first clip (for a thumbnail). No campaign filter =>
     every cut, including unassigned ones (so the Cuts view can surface orphans)."""
-    project_id = request.args.get("project", "").strip()
+    campaign_id = request.args.get("campaign", "").strip()
     conn = get_conn()
-    if project_id:
+    if campaign_id:
         rows = conn.execute(
             f"""SELECT {_EDIT_LIST_COLS}
                FROM edits e
                LEFT JOIN timeline_items t ON t.edit_id = e.id
-               LEFT JOIN projects p ON p.id = e.project_id
-               WHERE e.project_id = ?
+               LEFT JOIN campaigns p ON p.id = e.campaign_id
+               WHERE e.campaign_id = ?
                GROUP BY e.id ORDER BY e.created_at DESC""",
-            (project_id,),
+            (campaign_id,),
         ).fetchall()
     else:
         rows = conn.execute(
             f"""SELECT {_EDIT_LIST_COLS}
                FROM edits e
                LEFT JOIN timeline_items t ON t.edit_id = e.id
-               LEFT JOIN projects p ON p.id = e.project_id
+               LEFT JOIN campaigns p ON p.id = e.campaign_id
                GROUP BY e.id ORDER BY e.created_at DESC"""
         ).fetchall()
     conn.close()
@@ -37,15 +37,15 @@ def list_edits():
 def create_edit():
     data = request.json or {}
     name = (data.get("name") or "Untitled edit").strip() or "Untitled edit"
-    project_id = data.get("project_id")
+    campaign_id = data.get("campaign_id")
     conn = get_conn()
     cur = conn.execute(
-        "INSERT INTO edits (name, project_id) VALUES (?, ?)", (name, project_id)
+        "INSERT INTO edits (name, campaign_id) VALUES (?, ?)", (name, campaign_id)
     )
     edit_id = cur.lastrowid
     conn.commit()
     conn.close()
-    return jsonify({"id": edit_id, "name": name, "project_id": project_id})
+    return jsonify({"id": edit_id, "name": name, "campaign_id": campaign_id})
 
 
 @bp.get("/api/edits/<int:edit_id>")
@@ -88,9 +88,9 @@ def update_edit(edit_id):
     if "name" in data:
         fields.append("name = ?")
         values.append((data.get("name") or "Untitled edit").strip() or "Untitled edit")
-    if "project_id" in data:
-        fields.append("project_id = ?")
-        values.append(data.get("project_id"))
+    if "campaign_id" in data:
+        fields.append("campaign_id = ?")
+        values.append(data.get("campaign_id"))
     if "aspect" in data:
         aspect = data.get("aspect")
         if aspect not in (None, "", "source", *ASPECT_DIMS.keys()):
@@ -120,7 +120,7 @@ def delete_edit(edit_id):
 
 @bp.post("/api/edits/<int:edit_id>/generate")
 def generate_into_edit(edit_id):
-    """Append an AI rough cut to an existing edit, using its project's context."""
+    """Append an AI rough cut to an existing edit, using its campaign's context."""
     prompt = (request.json.get("prompt") or "").strip()
     if not prompt:
         return {"error": "prompt is required"}, 400
@@ -129,12 +129,12 @@ def generate_into_edit(edit_id):
     if not edit:
         conn.close()
         return {"error": "not found"}, 404
-    clips = _pool_for_generation(conn, [], edit["project_id"])
+    clips = _pool_for_generation(conn, [], edit["campaign_id"])
     if not clips:
         conn.close()
         return {"error": "No downloaded clips to assemble from. Import/pull clips into "
                 "your media folder first — catalog-only clips can't be cut."}, 400
-    full_prompt = _prompt_with_project_context(conn, edit["project_id"], prompt)
+    full_prompt = _prompt_with_campaign_context(conn, edit["campaign_id"], prompt)
     try:
         plan = generate_rough_cut(full_prompt, clips)
     except Exception as e:
@@ -191,7 +191,7 @@ def chat_edit(edit_id):
         (edit_id,),
     ).fetchall()
     current_timeline = [dict(r) for r in current]
-    pool = _pool_for_generation(conn, [], edit["project_id"])
+    pool = _pool_for_generation(conn, [], edit["campaign_id"])
 
     try:
         result = revise_edit(prompt, current_timeline, pool)
@@ -254,7 +254,7 @@ def undo_edit(edit_id):
 
 @bp.post("/api/generate-edit")
 def generate_edit_from_scratch():
-    """One-shot: prompt -> a brand-new edit (optionally inside a project). Returns the
+    """One-shot: prompt -> a brand-new edit (optionally inside a campaign). Returns the
     new edit id so the caller can jump into the editor. Runs the model first so a
     failed generation never leaves an empty edit behind."""
     data = request.json or {}
@@ -267,7 +267,7 @@ def generate_edit_from_scratch():
         clip_ids = [int(c) for c in clip_ids]
     except (TypeError, ValueError):
         return {"error": "clip_ids must be a list of integers"}, 400
-    project_id = data.get("project_id")
+    campaign_id = data.get("campaign_id")
 
     # Output frame/aspect for the new edit (from the editor's Frame setting). Validated
     # against the known aspects; anything else falls back to 'source' (no reframe).
@@ -276,12 +276,12 @@ def generate_edit_from_scratch():
         aspect = "source"
 
     conn = get_conn()
-    clips = _pool_for_generation(conn, clip_ids, project_id)
+    clips = _pool_for_generation(conn, clip_ids, campaign_id)
     if not clips:
         conn.close()
         return {"error": "No downloaded clips to assemble from. Import/pull clips into "
                 "your media folder first — catalog-only clips can't be cut."}, 400
-    full_prompt = _prompt_with_project_context(conn, project_id, prompt)
+    full_prompt = _prompt_with_campaign_context(conn, campaign_id, prompt)
     try:
         plan = generate_rough_cut(full_prompt, clips)
     except Exception as e:
@@ -293,8 +293,8 @@ def generate_edit_from_scratch():
     auto = concept or prompt
     name = (data.get("name") or "").strip() or (auto[:57] + ("…" if len(auto) > 57 else ""))
     cur = conn.execute(
-        "INSERT INTO edits (name, project_id, aspect) VALUES (?, ?, ?)",
-        (name, project_id, aspect),
+        "INSERT INTO edits (name, campaign_id, aspect) VALUES (?, ?, ?)",
+        (name, campaign_id, aspect),
     )
     edit_id = cur.lastrowid
     for i, sel in enumerate(plan.selections):
@@ -306,7 +306,7 @@ def generate_edit_from_scratch():
     conn.commit()
     conn.close()
     return jsonify({
-        "id": edit_id, "name": name, "project_id": project_id, "aspect": aspect,
+        "id": edit_id, "name": name, "campaign_id": campaign_id, "aspect": aspect,
         "concept": plan.concept, "selections": [s.model_dump() for s in plan.selections],
     })
 
@@ -520,10 +520,10 @@ def reorder_items(edit_id):
 
 
 @bp.post("/api/edits/<int:edit_id>/export")
-def export_project(edit_id):
+def export_campaign(edit_id):
     conn = get_conn()
-    project = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
-    if not project:
+    campaign = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
+    if not campaign:
         conn.close()
         return {"error": "not found"}, 404
     items = conn.execute(
@@ -560,7 +560,7 @@ def export_project(edit_id):
 
     # Output aspect. 'source'/None => derive ONE common frame from the first clip so
     # mixed-orientation footage still concatenates into a valid file.
-    aspect = (project["aspect"] if "aspect" in project.keys() else None) or "source"
+    aspect = (campaign["aspect"] if "aspect" in campaign.keys() else None) or "source"
     explicit_aspect = ASPECT_DIMS.get(aspect) is not None
     if explicit_aspect:
         dims = ASPECT_DIMS[aspect]
@@ -571,10 +571,10 @@ def export_project(edit_id):
     # The N ffmpeg re-encodes + concat can take a while on longer timelines, so run
     # them in a background job (same pattern as imports) and hand back a job_id the UI
     # polls — no request timeout, live progress.
-    job_id = _new_job(f"Export · {project['name']}", "clip")
+    job_id = _new_job(f"Export · {campaign['name']}", "clip")
     threading.Thread(
         target=_run_export_job,
-        args=(job_id, project["name"], explicit_aspect, dims, plan),
+        args=(job_id, campaign["name"], explicit_aspect, dims, plan),
         daemon=True,
     ).start()
     return jsonify({"job_id": job_id})

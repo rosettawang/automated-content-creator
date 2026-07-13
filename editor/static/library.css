@@ -130,7 +130,7 @@ body {
 #nav-links a:hover { background: #2c2c2c; }
 #nav-links a.active { background: #3a5c3a; color: #fff; }
 
-#project-filter {
+#campaign-filter {
   font-size: 0.82rem;
   padding: 0.4rem 0.5rem;
   border-radius: 6px;
@@ -140,8 +140,8 @@ body {
   max-width: 12rem;
 }
 
-/* ---- project membership bar ---- */
-#project-bar {
+/* ---- campaign membership bar ---- */
+#campaign-bar {
   display: flex;
   align-items: center;
   gap: 0.6rem;
@@ -149,9 +149,9 @@ body {
   background: #24222c;
   border-bottom: 1px solid #333;
 }
-#project-bar.hidden { display: none; }
-#project-bar-label { font-size: 0.9rem; font-weight: 600; white-space: nowrap; }
-#project-bar-desc {
+#campaign-bar.hidden { display: none; }
+#campaign-bar-label { font-size: 0.9rem; font-weight: 600; white-space: nowrap; }
+#campaign-bar-desc {
   font-size: 0.8rem;
   color: #aaa;
   overflow: hidden;
@@ -159,8 +159,8 @@ body {
   white-space: nowrap;
   max-width: 40vw;
 }
-#project-bar-spacer { flex: 1; }
-#add-to-project {
+#campaign-bar-spacer { flex: 1; }
+#add-to-campaign {
   font-size: 0.82rem;
   padding: 0.4rem 0.5rem;
   border-radius: 6px;
@@ -168,8 +168,8 @@ body {
   background: #2a2a2a;
   color: #eee;
 }
-#add-to-project:disabled { opacity: 0.5; }
-#remove-from-project {
+#add-to-campaign:disabled { opacity: 0.5; }
+#remove-from-campaign {
   font-size: 0.82rem;
   padding: 0.4rem 0.7rem;
   border-radius: 6px;
@@ -179,9 +179,9 @@ body {
   cursor: pointer;
   white-space: nowrap;
 }
-#remove-from-project.hidden { display: none; }
-#remove-from-project:hover { background: #5c3636; }
-#project-action-status { font-size: 0.78rem; color: #9fbf9f; white-space: nowrap; }
+#remove-from-campaign.hidden { display: none; }
+#remove-from-campaign:hover { background: #5c3636; }
+#campaign-action-status { font-size: 0.78rem; color: #9fbf9f; white-space: nowrap; }
 
 /* Gear button — opens the view-settings popup. */
 #lib-settings-btn {

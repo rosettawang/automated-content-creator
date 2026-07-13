@@ -1,5 +1,5 @@
 // ---------- state ----------
-let currentProjectId = null;
+let currentCampaignId = null;
 let currentEditId = null;
 let clips = [];
 let selectedClip = null;
@@ -322,18 +322,18 @@ function updateBulkBar() {
   document.getElementById("bulk-count").textContent = `${n} selected`;
 }
 
-// ---------- projects (themes) / edits (timelines) ----------
-// currentProjectId = the theme; currentEditId = the timeline being edited.
-async function loadProjects() {
-  const projects = await api("/api/projects");
-  const select = document.getElementById("project-select");
+// ---------- campaigns (themes) / edits (timelines) ----------
+// currentCampaignId = the theme; currentEditId = the timeline being edited.
+async function loadCampaigns() {
+  const campaigns = await api("/api/campaigns");
+  const select = document.getElementById("campaign-select");
   select.innerHTML = "";
-  // A pseudo-option for edits not filed under any project.
+  // A pseudo-option for edits not filed under any campaign.
   const unassigned = document.createElement("option");
   unassigned.value = "";
   unassigned.textContent = "(Unassigned)";
   select.appendChild(unassigned);
-  projects.forEach((p) => {
+  campaigns.forEach((p) => {
     const opt = document.createElement("option");
     opt.value = String(p.id);
     opt.textContent = p.name;
@@ -344,18 +344,18 @@ async function loadProjects() {
   newOpt.value = "__new__";
   newOpt.textContent = "+ New campaign…";
   select.appendChild(newOpt);
-  const ids = projects.map((p) => String(p.id));
-  if (currentProjectId === null) {
-    currentProjectId = projects.length ? String(projects[0].id) : "";
-  } else if (currentProjectId && !ids.includes(String(currentProjectId))) {
-    currentProjectId = "";
+  const ids = campaigns.map((p) => String(p.id));
+  if (currentCampaignId === null) {
+    currentCampaignId = campaigns.length ? String(campaigns[0].id) : "";
+  } else if (currentCampaignId && !ids.includes(String(currentCampaignId))) {
+    currentCampaignId = "";
   }
-  select.value = currentProjectId == null ? "" : String(currentProjectId);
+  select.value = currentCampaignId == null ? "" : String(currentCampaignId);
   await loadEdits();
 }
 
 async function loadEdits() {
-  const q = currentProjectId ? `?project=${currentProjectId}` : "";
+  const q = currentCampaignId ? `?campaign=${currentCampaignId}` : "";
   const edits = await api(`/api/edits${q}`);
   // Default to the current edit if still valid, else the campaign's newest.
   const ids = edits.map((e) => String(e.id));
@@ -770,21 +770,21 @@ document.getElementById("search").addEventListener("input", (e) => loadClips(e.t
 async function createCampaign() {
   const name = prompt("Campaign name (theme, e.g. \"Holiday campaign\", \"Gardening\")?");
   if (!name) return false;
-  const project = await api("/api/projects", { method: "POST", body: JSON.stringify({ name }) });
-  currentProjectId = String(project.id);
+  const campaign = await api("/api/campaigns", { method: "POST", body: JSON.stringify({ name }) });
+  currentCampaignId = String(campaign.id);
   currentEditId = null;
-  await loadProjects();
+  await loadCampaigns();
   return true;
 }
 
-document.getElementById("project-select").addEventListener("change", async (e) => {
+document.getElementById("campaign-select").addEventListener("change", async (e) => {
   if (e.target.value === "__new__") {
     // createCampaign() reloads on success; on cancel, reload to restore the dropdown
     // to its real selection (so it doesn't sit on "+ New campaign…").
-    if (!(await createCampaign())) await loadProjects();
+    if (!(await createCampaign())) await loadCampaigns();
     return;
   }
-  currentProjectId = e.target.value; // "" = Unassigned
+  currentCampaignId = e.target.value; // "" = Unassigned
   currentEditId = null;              // pick the campaign's first edit
   if (playing) pause();
   activeSeg = -1;
@@ -909,7 +909,7 @@ document.getElementById("generate-btn").addEventListener("click", async () => {
     // Generate always starts a NEW edit (a fresh timeline), auto-named from the
     // prompt. To reshape an existing edit, use the Edit Chat panel instead.
     const body = { prompt };
-    if (currentProjectId) body.project_id = parseInt(currentProjectId, 10);
+    if (currentCampaignId) body.campaign_id = parseInt(currentCampaignId, 10);
     // Apply the editor's current Frame setting to the new edit, so "generate vertical"
     // actually reframes to 9:16 rather than defaulting to source.
     const aspectSel = document.getElementById("aspect-select");
@@ -1117,10 +1117,10 @@ window.addEventListener("resize", () => { if (currentEditId) renderTimeline(); }
 
 // Deep-link support:
 //   /?edit=<id>    open straight into that edit (library "Assemble" jumps here)
-//   /?project=<id> open into a project (its first edit)
+//   /?campaign=<id> open into a campaign (its first edit)
 const params = new URLSearchParams(location.search);
 const requestedEdit = params.get("edit");
-const requestedProject = params.get("project");
+const requestedCampaign = params.get("campaign");
 
 // ---- live refresh: auto-surface edits created elsewhere (e.g. via the MCP) ----
 // Both the desktop UI and the MCP write to the same backend, but this window only
@@ -1150,10 +1150,10 @@ async function pollForNewEdits() {
   const fresh = edits.find((e) => Number(e.id) === maxId);
   if (!fresh) return;
   if (playing) pause();
-  currentProjectId = fresh.project_id != null ? String(fresh.project_id) : "";
+  currentCampaignId = fresh.campaign_id != null ? String(fresh.campaign_id) : "";
   currentEditId = String(fresh.id);
   activeSeg = -1;
-  await loadProjects(); // rebuilds campaign selector + loads the new edit's timeline
+  await loadCampaigns(); // rebuilds campaign selector + loads the new edit's timeline
   flashStatus(`New edit loaded: “${fresh.name}”`);
 }
 
@@ -1167,16 +1167,16 @@ async function init() {
   probeEnv();
   loadClips();
   if (requestedEdit) {
-    // Resolve which project the deep-linked edit lives in so the selectors line up.
+    // Resolve which campaign the deep-linked edit lives in so the selectors line up.
     try {
       const edit = await api(`/api/edits/${requestedEdit}`);
       currentEditId = String(edit.id);
-      currentProjectId = edit.project_id != null ? String(edit.project_id) : "";
+      currentCampaignId = edit.campaign_id != null ? String(edit.campaign_id) : "";
     } catch { /* fall through to defaults */ }
-  } else if (requestedProject) {
-    currentProjectId = requestedProject;
+  } else if (requestedCampaign) {
+    currentCampaignId = requestedCampaign;
   }
-  await loadProjects();
+  await loadCampaigns();
   startLiveRefresh();
 }
 

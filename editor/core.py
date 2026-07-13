@@ -1465,12 +1465,12 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 PANEL_BUNDLES = {
     "editor": ["app.js", "chat.js", "crop.js"],
     "library": ["library.js", "map.js", "things.js", "faces.js", "motion.js", "cuts.js"],
-    "campaigns": ["projects.js"],
+    "campaigns": ["campaigns.js"],
 }
 
 
 def _decorate_clips(clips: list[dict], membership: dict[int, list[int]] | None = None) -> list[dict]:
-    """Attach availability, effective kind, index status, and (optionally) project
+    """Attach availability, effective kind, index status, and (optionally) campaign
     membership to a list of clip dicts."""
     with _indexing_lock:
         indexing_now = set(_indexing)
@@ -1510,15 +1510,15 @@ def _decorate_clips(clips: list[dict], membership: dict[int, list[int]] | None =
             c["index_status"] = "pending"
         c["things"] = things_map.get(c["id"], [])
         if membership is not None:
-            c["project_ids"] = membership.get(c["id"], [])
+            c["campaign_ids"] = membership.get(c["id"], [])
     return clips
 
 
-def _project_membership(conn) -> dict[int, list[int]]:
-    """clip_id -> [project_id, ...] for every project_clips row."""
+def _campaign_membership(conn) -> dict[int, list[int]]:
+    """clip_id -> [campaign_id, ...] for every campaign_clips row."""
     membership: dict[int, list[int]] = {}
-    for r in conn.execute("SELECT clip_id, project_id FROM project_clips"):
-        membership.setdefault(r["clip_id"], []).append(r["project_id"])
+    for r in conn.execute("SELECT clip_id, campaign_id FROM campaign_clips"):
+        membership.setdefault(r["clip_id"], []).append(r["campaign_id"])
     return membership
 
 
@@ -2081,8 +2081,8 @@ def _upsert_thing(conn, name: str, kind: str = "", description: str = "") -> int
     return cur.lastrowid
 
 
-def _pool_for_generation(conn, clip_ids: list[int], project_id) -> list[dict]:
-    """Choose the clip pool for a generation: explicit clip_ids win; else a project's
+def _pool_for_generation(conn, clip_ids: list[int], campaign_id) -> list[dict]:
+    """Choose the clip pool for a generation: explicit clip_ids win; else a campaign's
     member clips; else the whole library.
 
     Only clips whose media is actually downloaded are eligible -- the assembler can
@@ -2094,14 +2094,14 @@ def _pool_for_generation(conn, clip_ids: list[int], project_id) -> list[dict]:
         rows = conn.execute(
             f"SELECT * FROM clips WHERE id IN ({ph}) ORDER BY file_stem", clip_ids
         ).fetchall()
-    elif project_id:
+    elif campaign_id:
         rows = conn.execute(
             """SELECT c.* FROM clips c
-               JOIN project_clips pc ON pc.clip_id = c.id
-               WHERE pc.project_id = ? ORDER BY c.file_stem""",
-            (project_id,),
+               JOIN campaign_clips pc ON pc.clip_id = c.id
+               WHERE pc.campaign_id = ? ORDER BY c.file_stem""",
+            (campaign_id,),
         ).fetchall()
-        if not rows:  # empty project -> fall back to the whole library
+        if not rows:  # empty campaign -> fall back to the whole library
             rows = conn.execute("SELECT * FROM clips ORDER BY file_stem").fetchall()
     else:
         rows = conn.execute("SELECT * FROM clips ORDER BY file_stem").fetchall()
@@ -2124,18 +2124,18 @@ def _attach_moments(conn, clips: list[dict]) -> None:
         c["moments"] = [dict(r) for r in rows]
 
 
-def _prompt_with_project_context(conn, project_id, prompt: str) -> str:
-    """Prepend the project's saved description so it steers the cut."""
-    if not project_id:
+def _prompt_with_campaign_context(conn, campaign_id, prompt: str) -> str:
+    """Prepend the campaign's saved description so it steers the cut."""
+    if not campaign_id:
         return prompt
-    row = conn.execute("SELECT name, description FROM projects WHERE id = ?", (project_id,)).fetchone()
+    row = conn.execute("SELECT name, description FROM campaigns WHERE id = ?", (campaign_id,)).fetchone()
     if row and (row["description"] or "").strip():
-        return (f"Project: {row['name']}\nProject context: {row['description'].strip()}\n\n{prompt}")
+        return (f"Campaign: {row['name']}\nCampaign context: {row['description'].strip()}\n\n{prompt}")
     return prompt
 
 
 _EDIT_LIST_COLS = """
-    e.*, p.name AS project_name,
+    e.*, p.name AS campaign_name,
     COUNT(t.id) AS item_count,
     COALESCE(SUM(t.out_point - t.in_point), 0) AS duration_s,
     (SELECT ti.clip_id FROM timeline_items ti

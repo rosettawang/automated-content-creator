@@ -284,16 +284,16 @@ def search_semantic():
     if not query:
         return {"error": "query is required"}, 400
     top_k = int(data.get("top_k") or 40)
-    project_id = (data.get("project") or "").strip()
+    campaign_id = (data.get("campaign") or "").strip()
     quality_intent, query = _quality_intent(query)
 
     conn = get_conn()
-    if project_id:
+    if campaign_id:
         vec_rows = conn.execute(
             """SELECT e.clip_id, e.vector FROM clip_embeddings e
-               JOIN project_clips pc ON pc.clip_id = e.clip_id
-               WHERE pc.project_id = ?""",
-            (project_id,),
+               JOIN campaign_clips pc ON pc.clip_id = e.clip_id
+               WHERE pc.campaign_id = ?""",
+            (campaign_id,),
         ).fetchall()
     else:
         vec_rows = conn.execute("SELECT clip_id, vector FROM clip_embeddings").fetchall()
@@ -318,7 +318,7 @@ def search_semantic():
     rows = conn.execute(
         f"SELECT * FROM clips WHERE id IN ({placeholders})", ids
     ).fetchall()
-    membership = _project_membership(conn)
+    membership = _campaign_membership(conn)
     conn.close()
 
     clips = _decorate_clips([dict(r) for r in rows], membership)

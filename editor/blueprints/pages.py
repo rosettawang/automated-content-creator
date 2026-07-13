@@ -22,9 +22,9 @@ def library():
     return render_template("library.html")
 
 
-@bp.get("/projects")
-def projects_page():
-    return render_template("projects.html")
+@bp.get("/campaigns")
+def campaigns_page():
+    return render_template("campaigns.html")
 
 
 @bp.get("/bundle/<panel>.js")

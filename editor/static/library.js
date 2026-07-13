@@ -1,7 +1,7 @@
 let allClips = [];
 const selectedClipIds = new Set(); // clips hand-picked to scope generation
-let currentProjectId = ""; // "" = All clips, else a project id (string)
-let projectsById = {};     // id -> project record
+let currentCampaignId = ""; // "" = All clips, else a campaign id (string)
+let campaignsById = {};     // id -> campaign record
 
 // Exposed to the workspace shell for cross-panel drag. Top-level `let` bindings
 // aren't window properties, so the shell can't read `allClips` directly — this hook
@@ -24,7 +24,7 @@ window.addEventListener("message", (e) => {
 });
 
 async function loadClips() {
-  const url = currentProjectId ? `/api/clips?project=${currentProjectId}` : "/api/clips";
+  const url = currentCampaignId ? `/api/clips?campaign=${currentCampaignId}` : "/api/clips";
   const res = await fetch(url);
   allClips = await res.json();
   applyFilter();
@@ -647,7 +647,7 @@ function runSemanticSearch() {
       const res = await fetch("/api/search-semantic", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q, project: currentProjectId || "", top_k: 60 }),
+        body: JSON.stringify({ query: q, campaign: currentCampaignId || "", top_k: 60 }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || res.statusText);
@@ -770,30 +770,30 @@ const fileChosen = document.getElementById("file-chosen");
 const importSubmit = document.getElementById("import-submit");
 const importThings = document.getElementById("import-things");
 const importContext = document.getElementById("import-context");
-const importProject = document.getElementById("import-project");
+const importCampaign = document.getElementById("import-campaign");
 
 let selectedFiles = []; // File[] staged for upload
 
-// Fill the campaign dropdown from the current projects (kept optional).
-async function populateImportProjects() {
+// Fill the campaign dropdown from the current campaigns (kept optional).
+async function populateImportCampaigns() {
   try {
-    const res = await fetch("/api/projects");
-    const projects = await res.json();
-    const keep = importProject.value;
-    importProject.innerHTML = '<option value="">None</option>';
-    projects.forEach((p) => {
+    const res = await fetch("/api/campaigns");
+    const campaigns = await res.json();
+    const keep = importCampaign.value;
+    importCampaign.innerHTML = '<option value="">None</option>';
+    campaigns.forEach((p) => {
       const o = document.createElement("option");
       o.value = p.id;
       o.textContent = p.name;
-      importProject.appendChild(o);
+      importCampaign.appendChild(o);
     });
-    importProject.value = keep;
+    importCampaign.value = keep;
   } catch { /* leave the "None" default */ }
 }
 
 function openImport() {
   importOverlay.classList.remove("hidden");
-  populateImportProjects();
+  populateImportCampaigns();
 }
 
 function closeImport() {
@@ -804,7 +804,7 @@ function closeImport() {
   importLinks.value = "";
   importThings.value = "";
   importContext.value = "";
-  importProject.value = "";
+  importCampaign.value = "";
   importResult.textContent = "";
   document.getElementById("import-progress").classList.add("hidden");
   fileChosen.classList.add("hidden");
@@ -1079,18 +1079,18 @@ importSubmit.addEventListener("click", async () => {
     }
 
     // Apply batch context + campaign to the clips that came in.
-    const projectId = importProject.value;
-    if (stems.size && (context || projectId)) {
+    const campaignId = importCampaign.value;
+    if (stems.size && (context || campaignId)) {
       const res = await fetch("/api/import-finalize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ file_stems: [...stems], context, project_id: projectId || null }),
+        body: JSON.stringify({ file_stems: [...stems], context, campaign_id: campaignId || null }),
       });
       const fin = await res.json();
       if (res.ok) {
         const extra = [];
         if (fin.context_applied) extra.push("context added");
-        if (fin.added_to_project) extra.push(`${fin.added_to_project} added to campaign`);
+        if (fin.added_to_campaign) extra.push(`${fin.added_to_campaign} added to campaign`);
         if (extra.length) parts.push(extra.join(", "));
       }
     }
@@ -1199,7 +1199,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !importOverlay.classList.contains("hidden")) closeImport();
 });
 
-// ---- assemble: prompt -> new project rough cut -> jump to editor ----
+// ---- assemble: prompt -> new campaign rough cut -> jump to editor ----
 const assemblePrompt = document.getElementById("assemble-prompt");
 const assembleBtn = document.getElementById("assemble-btn");
 const assembleStatus = document.getElementById("assemble-status");
@@ -1214,7 +1214,7 @@ function updateAssembleHint() {
   assembleStatus.textContent = n
     ? `${n} clip${n === 1 ? "" : "s"} selected — will generate from these`
     : "Using all clips (select some to narrow it down)";
-  if (typeof updateProjectBar === "function") updateProjectBar();
+  if (typeof updateCampaignBar === "function") updateCampaignBar();
 }
 
 async function assembleVideo() {
@@ -1230,10 +1230,10 @@ async function assembleVideo() {
     ? `Assembling a rough cut from your ${clipIds.length} selected clip(s)…`
     : "Assembling a rough cut from your indexed clips…";
   try {
-    // Assemble creates a new EDIT. If a project is selected in the library, attach
+    // Assemble creates a new EDIT. If a campaign is selected in the library, attach
     // the edit to it (its saved context also steers the cut, server-side).
     const payload = { prompt, clip_ids: clipIds };
-    if (currentProjectId) payload.project_id = parseInt(currentProjectId, 10);
+    if (currentCampaignId) payload.campaign_id = parseInt(currentCampaignId, 10);
     const res = await fetch("/api/generate-edit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1269,118 +1269,118 @@ function clearSelection() {
   });
   assembleStatus.classList.remove("error");
   updateAssembleHint();
-  updateProjectBar();
+  updateCampaignBar();
 }
 
-// ---- projects: filter + add/remove membership ----
-const projectFilter = document.getElementById("project-filter");
-const projectBar = document.getElementById("project-bar");
-const projectBarLabel = document.getElementById("project-bar-label");
-const projectBarDesc = document.getElementById("project-bar-desc");
-const addToProject = document.getElementById("add-to-project");
-const removeFromProject = document.getElementById("remove-from-project");
-const projectActionStatus = document.getElementById("project-action-status");
+// ---- campaigns: filter + add/remove membership ----
+const campaignFilter = document.getElementById("campaign-filter");
+const campaignBar = document.getElementById("campaign-bar");
+const campaignBarLabel = document.getElementById("campaign-bar-label");
+const campaignBarDesc = document.getElementById("campaign-bar-desc");
+const addToCampaign = document.getElementById("add-to-campaign");
+const removeFromCampaign = document.getElementById("remove-from-campaign");
+const campaignActionStatus = document.getElementById("campaign-action-status");
 
-async function loadProjects() {
-  const res = await fetch("/api/projects");
-  const projects = await res.json();
-  projectsById = Object.fromEntries(projects.map((p) => [String(p.id), p]));
+async function loadCampaigns() {
+  const res = await fetch("/api/campaigns");
+  const campaigns = await res.json();
+  campaignsById = Object.fromEntries(campaigns.map((p) => [String(p.id), p]));
 
   // Fill the header filter (preserving current selection).
-  projectFilter.innerHTML = '<option value="">All clips</option>';
-  addToProject.innerHTML = '<option value="">Add selected to campaign…</option>';
-  projects.forEach((p) => {
+  campaignFilter.innerHTML = '<option value="">All clips</option>';
+  addToCampaign.innerHTML = '<option value="">Add selected to campaign…</option>';
+  campaigns.forEach((p) => {
     const o1 = document.createElement("option");
     o1.value = String(p.id);
     o1.textContent = `${p.name} (${p.clip_count || 0})`;
-    projectFilter.appendChild(o1);
+    campaignFilter.appendChild(o1);
     const o2 = document.createElement("option");
     o2.value = String(p.id);
     o2.textContent = p.name;
-    addToProject.appendChild(o2);
+    addToCampaign.appendChild(o2);
   });
-  projectFilter.value = currentProjectId;
-  updateProjectBar();
+  campaignFilter.value = currentCampaignId;
+  updateCampaignBar();
 }
 
-function updateProjectBar() {
-  const p = projectsById[currentProjectId];
+function updateCampaignBar() {
+  const p = campaignsById[currentCampaignId];
   const nSel = selectedClipIds.size;
-  // The bar shows whenever a project is open, or when clips are selected (so you
-  // can add them to a project from the All-clips view).
+  // The bar shows whenever a campaign is open, or when clips are selected (so you
+  // can add them to a campaign from the All-clips view).
   const show = !!p || nSel > 0;
-  projectBar.classList.toggle("hidden", !show);
+  campaignBar.classList.toggle("hidden", !show);
   if (p) {
-    projectBarLabel.textContent = p.name;
-    projectBarDesc.textContent = p.description || "";
+    campaignBarLabel.textContent = p.name;
+    campaignBarDesc.textContent = p.description || "";
   } else {
-    projectBarLabel.textContent = "";
-    projectBarDesc.textContent = "";
+    campaignBarLabel.textContent = "";
+    campaignBarDesc.textContent = "";
   }
-  // "Remove from project" only makes sense inside a project with a selection.
-  removeFromProject.classList.toggle("hidden", !(p && nSel > 0));
-  removeFromProject.textContent = `Remove ${nSel} from campaign`;
+  // "Remove from campaign" only makes sense inside a campaign with a selection.
+  removeFromCampaign.classList.toggle("hidden", !(p && nSel > 0));
+  removeFromCampaign.textContent = `Remove ${nSel} from campaign`;
   // "Add to campaign" dropdown label reflects selection count.
-  addToProject.disabled = nSel === 0;
-  addToProject.options[0].textContent =
+  addToCampaign.disabled = nSel === 0;
+  addToCampaign.options[0].textContent =
     nSel > 0 ? `Add ${nSel} selected to campaign…` : "Add selected to campaign…";
 }
 
-projectFilter.addEventListener("change", async () => {
-  currentProjectId = projectFilter.value;
+campaignFilter.addEventListener("change", async () => {
+  currentCampaignId = campaignFilter.value;
   const url = new URL(window.location);
-  if (currentProjectId) url.searchParams.set("project", currentProjectId);
-  else url.searchParams.delete("project");
+  if (currentCampaignId) url.searchParams.set("campaign", currentCampaignId);
+  else url.searchParams.delete("campaign");
   history.replaceState(null, "", url);
   clearSelection();
   await loadClips();
-  updateProjectBar();
+  updateCampaignBar();
 });
 
-addToProject.addEventListener("change", async () => {
-  const pid = addToProject.value;
+addToCampaign.addEventListener("change", async () => {
+  const pid = addToCampaign.value;
   const ids = [...selectedClipIds];
-  if (!pid || !ids.length) { addToProject.value = ""; return; }
-  projectActionStatus.textContent = "Adding…";
+  if (!pid || !ids.length) { addToCampaign.value = ""; return; }
+  campaignActionStatus.textContent = "Adding…";
   try {
-    await fetch(`/api/projects/${pid}/clips`, {
+    await fetch(`/api/campaigns/${pid}/clips`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ clip_ids: ids }),
     });
-    const name = projectsById[pid]?.name || "project";
-    projectActionStatus.textContent = `Added ${ids.length} to "${name}".`;
+    const name = campaignsById[pid]?.name || "campaign";
+    campaignActionStatus.textContent = `Added ${ids.length} to "${name}".`;
     clearSelection();
-    await loadProjects();          // refresh counts
-    if (currentProjectId) await loadClips();
+    await loadCampaigns();          // refresh counts
+    if (currentCampaignId) await loadClips();
   } catch (err) {
-    projectActionStatus.textContent = `Error: ${err.message}`;
+    campaignActionStatus.textContent = `Error: ${err.message}`;
   }
-  addToProject.value = "";
+  addToCampaign.value = "";
 });
 
-removeFromProject.addEventListener("click", async () => {
+removeFromCampaign.addEventListener("click", async () => {
   const ids = [...selectedClipIds];
-  if (!currentProjectId || !ids.length) return;
-  projectActionStatus.textContent = "Removing…";
+  if (!currentCampaignId || !ids.length) return;
+  campaignActionStatus.textContent = "Removing…";
   try {
-    await fetch(`/api/projects/${currentProjectId}/clips`, {
+    await fetch(`/api/campaigns/${currentCampaignId}/clips`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ clip_ids: ids }),
     });
-    projectActionStatus.textContent = `Removed ${ids.length}.`;
+    campaignActionStatus.textContent = `Removed ${ids.length}.`;
     clearSelection();
-    await loadProjects();
+    await loadCampaigns();
     await loadClips();
   } catch (err) {
-    projectActionStatus.textContent = `Error: ${err.message}`;
+    campaignActionStatus.textContent = `Error: ${err.message}`;
   }
 });
 
-// Init: honor ?project=<id> deep link, then load projects + clips.
-currentProjectId = new URLSearchParams(window.location.search).get("project") || "";
+// Init: honor ?campaign=<id> deep link, then load campaigns + clips.
+currentCampaignId = new URLSearchParams(window.location.search).get("campaign") || "";
 (async () => {
-  await loadProjects();
+  await loadCampaigns();
   await loadClips();
 })();

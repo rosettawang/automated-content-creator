@@ -376,7 +376,7 @@ class CampaignChatResult(BaseModel):
 
 
 def campaign_chat(
-    project: dict,
+    campaign: dict,
     things: list[dict],
     in_campaign: list[dict],
     catalog: list[dict],
@@ -393,7 +393,7 @@ def campaign_chat(
     watch = _format_watchlist(things) if things else "(none yet)"
     have = _format_clip_catalog(in_campaign) if in_campaign else "(none yet)"
     all_clips = _format_clip_catalog(catalog) if catalog else "(catalog empty)"
-    ctx_doc = (project.get("context_doc") or "").strip() or "(empty — start building it)"
+    ctx_doc = (campaign.get("context_doc") or "").strip() or "(empty — start building it)"
 
     system = (
         "You are a creative producer assisting with ONE video campaign. Be concrete and "
@@ -411,8 +411,8 @@ def campaign_chat(
         "clip ids from the FULL CATALOG in recommend_clip_ids and a one-line reason. Only "
         "recommend; the user confirms. Leave it empty when not recommending clips. Never "
         "recommend clips already in the campaign.\n\n"
-        f"Campaign: {project.get('name','')}\n"
-        f"About: {project.get('description','') or '(no description)'}\n\n"
+        f"Campaign: {campaign.get('name','')}\n"
+        f"About: {campaign.get('description','') or '(no description)'}\n\n"
         f"CONTEXT DOCUMENT (current):\n{ctx_doc}\n\n"
         f"Watched things:\n{watch}\n\n"
         f"Clips ALREADY in this campaign:\n{have}\n\n"

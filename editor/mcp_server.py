@@ -180,7 +180,7 @@ def search_clips(query: str = "") -> dict:
 def assemble_cut(
     prompt: str,
     clip_ids: list[int] | None = None,
-    project_id: int | None = None,
+    campaign_id: int | None = None,
     name: str | None = None,
 ) -> dict:
     """Assemble a rough-cut *edit* from the library for a described video: Claude (in
@@ -189,23 +189,23 @@ def assemble_cut(
     Terminology: a **campaign** is a theme (e.g. "Holiday campaign", "Gardening")
     that groups related work; an **edit** is one assembled timeline/cut. This tool
     creates an edit — optionally filed under a campaign. (In the API a campaign id is
-    passed as `project_id`, the underlying field name.)
+    passed as `campaign_id`, the underlying field name.)
 
     - prompt: what the video should be (e.g. "30s upbeat montage of pollinators").
     - clip_ids: optional — restrict the pool to these library clip ids.
-    - project_id: optional — file the new edit under this campaign (its description
+    - campaign_id: optional — file the new edit under this campaign (its description
       is also fed to the model as context). Omit for a standalone edit.
     - name: optional edit name (defaults to a trimmed prompt).
 
-    Returns the new edit id, its project_id, the concept, and the chosen selections.
+    Returns the new edit id, its campaign_id, the concept, and the chosen selections.
     Open the edit in the editor to fine-tune and export.
     """
     _require_app()
     payload: dict = {"prompt": prompt}
     if clip_ids:
         payload["clip_ids"] = clip_ids
-    if project_id is not None:
-        payload["project_id"] = project_id
+    if campaign_id is not None:
+        payload["campaign_id"] = campaign_id
     if name:
         payload["name"] = name
     with _client() as c:
@@ -215,7 +215,7 @@ def assemble_cut(
     data = resp.json()
     return {
         "edit_id": data.get("id"),
-        "project_id": data.get("project_id"),
+        "campaign_id": data.get("campaign_id"),
         "name": data.get("name"),
         "concept": data.get("concept"),
         "selections": data.get("selections", []),

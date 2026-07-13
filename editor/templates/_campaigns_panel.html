@@ -1,15 +1,15 @@
-  <div id="projects-header">
+  <div id="campaigns-header">
     <h1>Campaigns</h1>
     <nav id="nav-links">
       <a href="/">Editor</a>
       <a href="/library">Clip Library</a>
-      <a href="/projects" class="active">Campaigns</a>
+      <a href="/campaigns" class="active">Campaigns</a>
     </nav>
     <span id="cmp-count"></span>
-    <button id="new-project-btn">New campaign</button>
+    <button id="new-campaign-btn">New campaign</button>
   </div>
 
-  <div id="projects-grid"></div>
+  <div id="campaigns-grid"></div>
 
   <div id="empty" class="hidden">
     No campaigns yet. Create one to group clips around a theme (e.g. a Holiday
@@ -17,24 +17,24 @@
   </div>
 
   <!-- Create / edit dialog -->
-  <div id="project-overlay" class="hidden">
-    <div id="project-card">
-      <button id="project-close">&times;</button>
-      <h2 id="project-dialog-title">New campaign</h2>
+  <div id="campaign-overlay" class="hidden">
+    <div id="campaign-card">
+      <button id="campaign-close">&times;</button>
+      <h2 id="campaign-dialog-title">New campaign</h2>
       <label class="fld">
         <span>Name</span>
-        <input id="project-name" type="text" placeholder="e.g. Holiday campaign, Gardening series">
+        <input id="campaign-name" type="text" placeholder="e.g. Holiday campaign, Gardening series">
       </label>
       <label class="fld">
         <span>What is this campaign about?</span>
-        <textarea id="project-description" rows="5"
+        <textarea id="campaign-description" rows="5"
           placeholder="Describe the campaign — subject, angle, tone, target audience. This context is saved and used to help assemble edits."></textarea>
       </label>
-      <div id="project-dialog-actions">
-        <button id="project-save">Create</button>
-        <button id="project-cancel" class="secondary">Cancel</button>
+      <div id="campaign-dialog-actions">
+        <button id="campaign-save">Create</button>
+        <button id="campaign-cancel" class="secondary">Cancel</button>
       </div>
-      <div id="project-error"></div>
+      <div id="campaign-error"></div>
     </div>
   </div>
 
@@ -48,6 +48,18 @@
       </div>
       <button id="drawer-close" title="Close">&times;</button>
     </div>
+
+    <section id="drawer-context">
+      <h3>Context document
+        <span class="section-hint">a living brief the chat keeps up to date</span>
+      </h3>
+      <textarea id="cmp-context-doc" rows="6"
+        placeholder="The chat builds this as you talk — subject, angle, tone, audience, decisions, what's still needed. You can also edit it directly."></textarea>
+      <div class="context-actions">
+        <button id="cmp-context-save" type="button">Save</button>
+        <span id="cmp-context-status" class="section-hint"></span>
+      </div>
+    </section>
 
     <section id="drawer-things">
       <h3>Important things

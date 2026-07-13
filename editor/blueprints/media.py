@@ -287,7 +287,7 @@ def import_finalize():
     data = request.json or {}
     stems = [s for s in (data.get("file_stems") or []) if s]
     context = (data.get("context") or "").strip()
-    project_id = data.get("project_id") or None
+    campaign_id = data.get("campaign_id") or None
 
     conn = get_conn()
     ids = []
@@ -302,16 +302,16 @@ def import_finalize():
         conn.execute(f"UPDATE clips SET context = ? WHERE id IN ({ph})", (context, *ids))
         context_applied = len(ids)
 
-    added_to_project = 0
-    if project_id and ids:
+    added_to_campaign = 0
+    if campaign_id and ids:
         for cid in ids:
             cur = conn.execute(
-                "INSERT OR IGNORE INTO project_clips (project_id, clip_id) VALUES (?, ?)",
-                (project_id, cid),
+                "INSERT OR IGNORE INTO campaign_clips (campaign_id, clip_id) VALUES (?, ?)",
+                (campaign_id, cid),
             )
-            added_to_project += cur.rowcount
+            added_to_campaign += cur.rowcount
 
     conn.commit()
     conn.close()
     return jsonify({"clips": len(ids), "context_applied": context_applied,
-                    "added_to_project": added_to_project})
+                    "added_to_campaign": added_to_campaign})

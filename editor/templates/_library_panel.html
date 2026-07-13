@@ -3,9 +3,9 @@
     <nav id="nav-links">
       <a href="/">Editor</a>
       <a href="/library" class="active">Clip Library</a>
-      <a href="/projects">Campaigns</a>
+      <a href="/campaigns">Campaigns</a>
     </nav>
-    <select id="project-filter" title="Filter by campaign">
+    <select id="campaign-filter" title="Filter by campaign">
       <option value="">All clips</option>
     </select>
     <input id="lib-search" placeholder="search description / category / tags / filename">
@@ -49,15 +49,15 @@
     </div>
   </div>
 
-  <div id="project-bar" class="hidden">
-    <span id="project-bar-label"></span>
-    <span id="project-bar-desc"></span>
-    <span id="project-bar-spacer"></span>
-    <select id="add-to-project">
+  <div id="campaign-bar" class="hidden">
+    <span id="campaign-bar-label"></span>
+    <span id="campaign-bar-desc"></span>
+    <span id="campaign-bar-spacer"></span>
+    <select id="add-to-campaign">
       <option value="">Add selected to campaign…</option>
     </select>
-    <button id="remove-from-project" class="hidden">Remove selected from campaign</button>
-    <span id="project-action-status"></span>
+    <button id="remove-from-campaign" class="hidden">Remove selected from campaign</button>
+    <span id="campaign-action-status"></span>
   </div>
 
   <div id="assemble-bar">
@@ -102,7 +102,7 @@
             placeholder="e.g. footage from the July acorn-oil pressing day"></textarea>
         </label>
         <label class="import-field">Add to campaign <span class="import-hint">(optional)</span>
-          <select id="import-project">
+          <select id="import-campaign">
             <option value="">None</option>
           </select>
         </label>

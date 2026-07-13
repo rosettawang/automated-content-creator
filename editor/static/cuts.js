@@ -2,11 +2,11 @@
 // Browse every assembled timeline ("cut"/edit) — assigned to a campaign or orphaned.
 // Open, rename, delete, or assign to a campaign, so generated work products stop
 // getting lost behind a bare ?edit=<id> URL.
-// Shares the library bundle's IIFE scope (fmtClock, projectsById, etc.).
+// Shares the library bundle's IIFE scope (fmtClock, campaignsById, etc.).
 
-function cutsProjectOptions(selectedId) {
+function cutsCampaignOptions(selectedId) {
   const opts = ['<option value="">Unassigned</option>'];
-  Object.values(projectsById || {}).forEach((p) => {
+  Object.values(campaignsById || {}).forEach((p) => {
     const sel = String(p.id) === String(selectedId) ? " selected" : "";
     opts.push(`<option value="${p.id}"${sel}>${(p.name || "").replace(/[<>&]/g, "")}</option>`);
   });
@@ -26,8 +26,8 @@ async function loadCuts() {
   }
   // Refresh campaign list so the assign dropdown is current.
   try {
-    const projects = await (await fetch("/api/projects")).json();
-    projectsById = Object.fromEntries(projects.map((p) => [String(p.id), p]));
+    const campaigns = await (await fetch("/api/campaigns")).json();
+    campaignsById = Object.fromEntries(campaigns.map((p) => [String(p.id), p]));
   } catch { /* keep whatever we had */ }
 
   empty.classList.toggle("hidden", edits.length > 0);
@@ -67,15 +67,15 @@ async function loadCuts() {
     // Campaign assignment (also fixes orphaned cuts right here).
     const assign = document.createElement("select");
     assign.className = "cut-assign";
-    assign.innerHTML = cutsProjectOptions(e.project_id);
+    assign.innerHTML = cutsCampaignOptions(e.campaign_id);
     assign.title = "Assign to a campaign";
     assign.onchange = async () => {
       await fetch(`/api/edits/${e.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_id: assign.value ? parseInt(assign.value, 10) : null }),
+        body: JSON.stringify({ campaign_id: assign.value ? parseInt(assign.value, 10) : null }),
       });
-      e.project_id = assign.value || null;
+      e.campaign_id = assign.value || null;
     };
 
     const actions = document.createElement("div");

@@ -82,19 +82,19 @@ def clip_thumbnail(clip_id):
 @bp.get("/api/clips")
 def list_clips():
     q = request.args.get("q", "").strip().lower()
-    project_id = request.args.get("project", "").strip()
+    campaign_id = request.args.get("campaign", "").strip()
     conn = get_conn()
-    if project_id:
+    if campaign_id:
         rows = conn.execute(
             """SELECT c.* FROM clips c
-               JOIN project_clips pc ON pc.clip_id = c.id
-               WHERE pc.project_id = ?
+               JOIN campaign_clips pc ON pc.clip_id = c.id
+               WHERE pc.campaign_id = ?
                ORDER BY c.file_stem""",
-            (project_id,),
+            (campaign_id,),
         ).fetchall()
     else:
         rows = conn.execute("SELECT * FROM clips ORDER BY file_stem").fetchall()
-    membership = _project_membership(conn)
+    membership = _campaign_membership(conn)
     conn.close()
     clips = [dict(r) for r in rows]
     if q:

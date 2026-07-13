@@ -1,53 +1,53 @@
-let allProjects = [];
+let allCampaigns = [];
 
 function escapeText(s) {
   return (s || "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-let editsByProject = {}; // project_id (or "" for unassigned) -> [edit, ...]
-let editingId = null; // null = creating, otherwise editing this project id
+let editsByCampaign = {}; // campaign_id (or "" for unassigned) -> [edit, ...]
+let editingId = null; // null = creating, otherwise editing this campaign id
 
-async function loadProjects() {
-  const [pRes, eRes] = await Promise.all([fetch("/api/projects"), fetch("/api/edits")]);
-  allProjects = await pRes.json();
+async function loadCampaigns() {
+  const [pRes, eRes] = await Promise.all([fetch("/api/campaigns"), fetch("/api/edits")]);
+  allCampaigns = await pRes.json();
   const edits = await eRes.json();
-  editsByProject = {};
+  editsByCampaign = {};
   edits.forEach((e) => {
-    const key = e.project_id != null ? String(e.project_id) : "";
-    (editsByProject[key] = editsByProject[key] || []).push(e);
+    const key = e.campaign_id != null ? String(e.campaign_id) : "";
+    (editsByCampaign[key] = editsByCampaign[key] || []).push(e);
   });
   render();
 }
 
 function render() {
-  const grid = document.getElementById("projects-grid");
+  const grid = document.getElementById("campaigns-grid");
   grid.innerHTML = "";
   document.getElementById("cmp-count").textContent =
-    `${allProjects.length} campaign${allProjects.length === 1 ? "" : "s"}`;
-  document.getElementById("empty").classList.toggle("hidden", allProjects.length > 0);
+    `${allCampaigns.length} campaign${allCampaigns.length === 1 ? "" : "s"}`;
+  document.getElementById("empty").classList.toggle("hidden", allCampaigns.length > 0);
 
-  allProjects.forEach((p) => {
+  allCampaigns.forEach((p) => {
     const card = document.createElement("div");
-    card.className = "project-card";
+    card.className = "campaign-card";
 
     const title = document.createElement("div");
-    title.className = "project-title";
+    title.className = "campaign-title";
     title.textContent = p.name;
 
     const desc = document.createElement("div");
-    desc.className = "project-desc";
+    desc.className = "campaign-desc";
     desc.textContent = p.description || "No description yet.";
     if (!p.description) desc.classList.add("muted");
 
     const meta = document.createElement("div");
-    meta.className = "project-meta";
+    meta.className = "campaign-meta";
     meta.textContent = `${p.clip_count || 0} clip${p.clip_count === 1 ? "" : "s"}`;
 
     // Saved cuts (edits) in this campaign — click one to open it in the editor.
-    const cuts = editsByProject[String(p.id)] || [];
+    const cuts = editsByCampaign[String(p.id)] || [];
     const cutsWrap = document.createElement("div");
-    cutsWrap.className = "project-cuts";
+    cutsWrap.className = "campaign-cuts";
     if (cuts.length) {
       const label = document.createElement("div");
       label.className = "cuts-label";
@@ -74,7 +74,7 @@ function render() {
     }
 
     const actions = document.createElement("div");
-    actions.className = "project-actions";
+    actions.className = "campaign-actions";
 
     const editBtn = document.createElement("button");
     editBtn.className = "secondary";
@@ -87,8 +87,8 @@ function render() {
     delBtn.onclick = async (e) => {
       e.stopPropagation();
       if (!confirm(`Delete campaign "${p.name}"? Clips themselves are not deleted.`)) return;
-      await fetch(`/api/projects/${p.id}`, { method: "DELETE" });
-      await loadProjects();
+      await fetch(`/api/campaigns/${p.id}`, { method: "DELETE" });
+      await loadCampaigns();
     };
 
     actions.append(editBtn, delBtn);
@@ -99,18 +99,18 @@ function render() {
 }
 
 // ---- create / edit dialog ----
-const overlay = document.getElementById("project-overlay");
-const nameInput = document.getElementById("project-name");
-const descInput = document.getElementById("project-description");
-const errorEl = document.getElementById("project-error");
+const overlay = document.getElementById("campaign-overlay");
+const nameInput = document.getElementById("campaign-name");
+const descInput = document.getElementById("campaign-description");
+const errorEl = document.getElementById("campaign-error");
 
-function openDialog(project) {
-  editingId = project ? project.id : null;
-  document.getElementById("project-dialog-title").textContent =
-    project ? "Edit campaign" : "New campaign";
-  document.getElementById("project-save").textContent = project ? "Save" : "Create";
-  nameInput.value = project ? project.name : "";
-  descInput.value = project ? (project.description || "") : "";
+function openDialog(campaign) {
+  editingId = campaign ? campaign.id : null;
+  document.getElementById("campaign-dialog-title").textContent =
+    campaign ? "Edit campaign" : "New campaign";
+  document.getElementById("campaign-save").textContent = campaign ? "Save" : "Create";
+  nameInput.value = campaign ? campaign.name : "";
+  descInput.value = campaign ? (campaign.description || "") : "";
   errorEl.textContent = "";
   overlay.classList.remove("hidden");
   nameInput.focus();
@@ -121,15 +121,15 @@ function closeDialog() {
   editingId = null;
 }
 
-document.getElementById("new-project-btn").addEventListener("click", () => openDialog(null));
-document.getElementById("project-close").addEventListener("click", closeDialog);
-document.getElementById("project-cancel").addEventListener("click", closeDialog);
-overlay.addEventListener("click", (e) => { if (e.target.id === "project-overlay") closeDialog(); });
+document.getElementById("new-campaign-btn").addEventListener("click", () => openDialog(null));
+document.getElementById("campaign-close").addEventListener("click", closeDialog);
+document.getElementById("campaign-cancel").addEventListener("click", closeDialog);
+overlay.addEventListener("click", (e) => { if (e.target.id === "campaign-overlay") closeDialog(); });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !overlay.classList.contains("hidden")) closeDialog();
 });
 
-const saveBtn = document.getElementById("project-save");
+const saveBtn = document.getElementById("campaign-save");
 saveBtn.addEventListener("click", async () => {
   const name = nameInput.value.trim();
   const description = descInput.value.trim();
@@ -138,25 +138,25 @@ saveBtn.addEventListener("click", async () => {
   try {
     if (editingId == null) {
       errorEl.textContent = "Creating campaign and inferring key things…";
-      const res = await fetch("/api/projects", {
+      const res = await fetch("/api/campaigns", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, description }),
       });
       const created = await res.json();
       closeDialog();
-      await loadProjects();
+      await loadCampaigns();
       // Jump straight into the new campaign's drawer so the inferred things show.
-      const full = allProjects.find((p) => p.id === created.id) || created;
+      const full = allCampaigns.find((p) => p.id === created.id) || created;
       openDrawer(full);
     } else {
-      await fetch(`/api/projects/${editingId}`, {
+      await fetch(`/api/campaigns/${editingId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, description }),
       });
       closeDialog();
-      await loadProjects();
+      await loadCampaigns();
     }
   } catch (err) {
     errorEl.textContent = `Error: ${err.message}`;
@@ -166,25 +166,51 @@ saveBtn.addEventListener("click", async () => {
 });
 
 // ============================ Campaign drawer ============================
-let drawerProject = null;
+let drawerCampaign = null;
 
 const drawer = document.getElementById("campaign-drawer");
 const scrim = document.getElementById("drawer-scrim");
 
-function openDrawer(project) {
-  drawerProject = project;
-  document.getElementById("drawer-title").textContent = project.name;
-  document.getElementById("drawer-desc").textContent = project.description || "";
+function openDrawer(campaign) {
+  drawerCampaign = campaign;
+  document.getElementById("drawer-title").textContent = campaign.name;
+  document.getElementById("drawer-desc").textContent = campaign.description || "";
+  document.getElementById("cmp-context-doc").value = campaign.context_doc || "";
+  document.getElementById("cmp-context-status").textContent = "";
   drawer.classList.remove("hidden");
   scrim.classList.remove("hidden");
   loadThings();
   loadChat();
 }
 
+// The chat keeps the context doc current; the user can also edit it directly.
+function setContextDoc(text) {
+  document.getElementById("cmp-context-doc").value = text || "";
+  if (drawerCampaign) drawerCampaign.context_doc = text || "";
+}
+
+document.getElementById("cmp-context-save").addEventListener("click", async () => {
+  if (!drawerCampaign) return;
+  const status = document.getElementById("cmp-context-status");
+  const context_doc = document.getElementById("cmp-context-doc").value;
+  status.textContent = "Saving…";
+  try {
+    await fetch(`/api/campaigns/${drawerCampaign.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ context_doc }),
+    });
+    drawerCampaign.context_doc = context_doc;
+    status.textContent = "Saved";
+  } catch (err) {
+    status.textContent = `Error: ${err.message}`;
+  }
+});
+
 function closeDrawer() {
   drawer.classList.add("hidden");
   scrim.classList.add("hidden");
-  drawerProject = null;
+  drawerCampaign = null;
 }
 
 document.getElementById("drawer-close").addEventListener("click", closeDrawer);
@@ -197,7 +223,7 @@ document.addEventListener("keydown", (e) => {
 async function loadThings() {
   const list = document.getElementById("cmp-things-list");
   list.innerHTML = "<li class='muted'>Loading…</li>";
-  const res = await fetch(`/api/projects/${drawerProject.id}/things`);
+  const res = await fetch(`/api/campaigns/${drawerCampaign.id}/things`);
   const things = await res.json();
   renderThings(things);
 }
@@ -232,7 +258,7 @@ function renderThings(things) {
     rm.textContent = "×";
     rm.title = "Remove from this campaign";
     rm.onclick = async () => {
-      await fetch(`/api/projects/${drawerProject.id}/things/${t.id}`, { method: "DELETE" });
+      await fetch(`/api/campaigns/${drawerCampaign.id}/things/${t.id}`, { method: "DELETE" });
       loadThings();
     };
 
@@ -265,7 +291,7 @@ document.getElementById("cmp-thing-add-form").addEventListener("submit", async (
   const name = input.value.trim();
   if (!name) return;
   input.value = "";
-  await fetch(`/api/projects/${drawerProject.id}/things`, {
+  await fetch(`/api/campaigns/${drawerCampaign.id}/things`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name }),
@@ -277,7 +303,7 @@ document.getElementById("cmp-thing-add-form").addEventListener("submit", async (
 async function loadChat() {
   const log = document.getElementById("chat-log");
   log.innerHTML = "";
-  const res = await fetch(`/api/projects/${drawerProject.id}/chat`);
+  const res = await fetch(`/api/campaigns/${drawerCampaign.id}/chat`);
   const msgs = await res.json();
   if (!msgs.length) {
     log.innerHTML = "<div class='chat-empty'>Ask anything about this campaign — ideas, "
@@ -299,30 +325,80 @@ function appendChat(role, content) {
   return div;
 }
 
+let cmpChatSending = false;
+
+// Render an actionable "add these clips" recommendation card in the chat log.
+function appendRecommendation(rec) {
+  if (!rec || !rec.clips || !rec.clips.length) return;
+  const log = document.getElementById("chat-log");
+  const card = document.createElement("div");
+  card.className = "chat-rec";
+  const n = rec.clips.length;
+  const head = document.createElement("div");
+  head.className = "chat-rec-head";
+  head.textContent = rec.reason || `Add ${n} clip${n === 1 ? "" : "s"} to this campaign?`;
+  const list = document.createElement("div");
+  list.className = "chat-rec-list";
+  list.textContent = rec.clips.map((c) => c.description || c.file_stem).join(" · ");
+  const btn = document.createElement("button");
+  btn.className = "chat-rec-add";
+  btn.textContent = `Add ${n} clip${n === 1 ? "" : "s"}`;
+  btn.onclick = async () => {
+    btn.disabled = true;
+    try {
+      await fetch(`/api/campaigns/${drawerCampaign.id}/clips`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clip_ids: rec.clips.map((c) => c.id) }),
+      });
+      btn.textContent = `Added ${n}`;
+      if (window.toast) toast(`Added ${n} clip${n === 1 ? "" : "s"} to ${drawerCampaign.name}`);
+      loadCampaigns();  // refresh clip counts on the cards
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = `Error — retry`;
+    }
+  };
+  card.append(head, list, btn);
+  log.appendChild(card);
+  log.scrollTop = log.scrollHeight;
+}
+
 document.getElementById("cmp-chat-form").addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (cmpChatSending) return;
   const input = document.getElementById("cmp-chat-input");
   const sendBtn = document.getElementById("cmp-chat-send");
   const message = input.value.trim();
   if (!message) return;
-  input.value = "";
+
+  cmpChatSending = true;
+  sendBtn.disabled = true;
+  input.disabled = true;                 // keep text until acknowledged
   appendChat("user", message);
   const thinking = appendChat("assistant", "…");
-  sendBtn.disabled = true;
   try {
-    const res = await fetch(`/api/projects/${drawerProject.id}/chat`, {
+    const res = await fetch(`/api/campaigns/${drawerCampaign.id}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message }),
     });
     const body = await res.json();
-    thinking.textContent = res.ok ? body.reply : `Error: ${body.error || res.statusText}`;
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    thinking.textContent = body.reply;
+    input.value = "";                    // clear only on success
+    if (body.context_doc != null) setContextDoc(body.context_doc);
+    appendRecommendation(body.recommend);
   } catch (err) {
-    thinking.textContent = `Error: ${err.message}`;
+    thinking.textContent = `Error: ${err.message}`;   // text preserved for retry
+    thinking.classList.add("chat-error");
   } finally {
+    cmpChatSending = false;
     sendBtn.disabled = false;
+    input.disabled = false;
+    input.focus();
     document.getElementById("chat-log").scrollTop = 1e9;
   }
 });
 
-loadProjects();
+loadCampaigns();

@@ -34,18 +34,19 @@ CREATE TABLE IF NOT EXISTS clips (
     source_url TEXT
 );
 
-CREATE TABLE IF NOT EXISTS projects (
+CREATE TABLE IF NOT EXISTS campaigns (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     description TEXT,
+    context_doc TEXT,                   -- living brief the chat maintains
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
--- An "edit" is one assembled timeline (a rough cut / mix). A project (theme) has
--- many edits. project_id is nullable so an edit can exist unassigned.
+-- An "edit" is one assembled timeline (a rough cut / mix). A campaign (theme) has
+-- many edits. campaign_id is nullable so an edit can exist unassigned.
 CREATE TABLE IF NOT EXISTS edits (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+    campaign_id INTEGER REFERENCES campaigns(id) ON DELETE SET NULL,
     name TEXT NOT NULL,
     aspect TEXT,                        -- output aspect: 'source'|'9:16'|'1:1'|'16:9'|'4:5'
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -66,12 +67,12 @@ CREATE TABLE IF NOT EXISTS timeline_items (
     kb_x REAL, kb_y REAL, kb_w REAL, kb_h REAL
 );
 
--- Which clips belong to which project (a clip may belong to many projects).
-CREATE TABLE IF NOT EXISTS project_clips (
-    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+-- Which clips belong to which campaign (a clip may belong to many campaigns).
+CREATE TABLE IF NOT EXISTS campaign_clips (
+    campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
     clip_id INTEGER NOT NULL REFERENCES clips(id) ON DELETE CASCADE,
     added_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (project_id, clip_id)
+    PRIMARY KEY (campaign_id, clip_id)
 );
 
 -- User-named "things" to watch for: a plant species (pipevine), an action, an
@@ -95,17 +96,17 @@ CREATE TABLE IF NOT EXISTS clip_things (
 );
 
 -- Which things matter to which campaign (inferred at creation, then user-editable).
-CREATE TABLE IF NOT EXISTS project_things (
-    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS campaign_things (
+    campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
     thing_id INTEGER NOT NULL REFERENCES things(id) ON DELETE CASCADE,
     added_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (project_id, thing_id)
+    PRIMARY KEY (campaign_id, thing_id)
 );
 
 -- Per-campaign chat history (the assistant conversation shown in the campaign drawer).
-CREATE TABLE IF NOT EXISTS project_messages (
+CREATE TABLE IF NOT EXISTS campaign_messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
     role TEXT NOT NULL,               -- 'user' | 'assistant'
     content TEXT NOT NULL,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -220,8 +221,29 @@ def get_conn():
     return conn
 
 
+def _migrate_project_to_campaign(conn):
+    """Rename the legacy `project*` tables/columns to `campaign*` in place, before
+    the schema's CREATE TABLE IF NOT EXISTS would otherwise make empty new ones and
+    strand the old data. Idempotent: only renames what still has the old name."""
+    tbls = lambda: {r["name"] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    for old, new in (("projects", "campaigns"), ("project_clips", "campaign_clips"),
+                     ("project_things", "campaign_things"),
+                     ("project_messages", "campaign_messages")):
+        t = tbls()
+        if old in t and new not in t:
+            conn.execute(f"ALTER TABLE {old} RENAME TO {new}")
+    # Rename the FK column project_id -> campaign_id wherever it survives.
+    for tbl in ("edits", "campaign_clips", "campaign_things", "campaign_messages"):
+        if tbl in tbls():
+            cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({tbl})")}
+            if "project_id" in cols and "campaign_id" not in cols:
+                conn.execute(f"ALTER TABLE {tbl} RENAME COLUMN project_id TO campaign_id")
+
+
 def init_db():
     conn = get_conn()
+    _migrate_project_to_campaign(conn)   # must run before CREATE IF NOT EXISTS
     conn.executescript(SCHEMA)
     existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(clips)")}
     if "transcript" not in existing_cols:
@@ -256,21 +278,24 @@ def init_db():
                      ("source_kind", "TEXT"), ("source_url", "TEXT")):
         if col not in existing_cols:
             conn.execute(f"ALTER TABLE clips ADD COLUMN {col} {typ}")
-    project_cols = {row["name"] for row in conn.execute("PRAGMA table_info(projects)")}
-    if "description" not in project_cols:
-        conn.execute("ALTER TABLE projects ADD COLUMN description TEXT")
+    campaign_cols = {row["name"] for row in conn.execute("PRAGMA table_info(campaigns)")}
+    if "description" not in campaign_cols:
+        conn.execute("ALTER TABLE campaigns ADD COLUMN description TEXT")
+    # Living campaign brief the chat keeps up to date (subject/angle/tone/decisions).
+    if "context_doc" not in campaign_cols:
+        conn.execute("ALTER TABLE campaigns ADD COLUMN context_doc TEXT")
 
-    # One-time restructure: originally a "project" row WAS a timeline, with
-    # timeline_items.project_id pointing at it. The model is now
-    # Project (theme) -> many Edits -> timeline_items. Old projects rows were really
+    # One-time restructure: originally a "campaign" row WAS a timeline, with
+    # timeline_items.campaign_id pointing at it. The model is now
+    # Campaign (theme) -> many Edits -> timeline_items. Old campaigns rows were really
     # edits (test generations); per product decision they're discarded so we start
     # clean on the new hierarchy.
     tl_cols = {row["name"] for row in conn.execute("PRAGMA table_info(timeline_items)")}
-    if "project_id" in tl_cols and "edit_id" not in tl_cols:
+    if "campaign_id" in tl_cols and "edit_id" not in tl_cols:
         conn.executescript(
             """
             DROP TABLE IF EXISTS timeline_items;
-            DELETE FROM projects;
+            DELETE FROM campaigns;
             CREATE TABLE timeline_items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 edit_id INTEGER NOT NULL REFERENCES edits(id) ON DELETE CASCADE,

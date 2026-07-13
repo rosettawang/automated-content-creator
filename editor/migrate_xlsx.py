@@ -6,7 +6,7 @@ Usage:
     python3 editor/migrate_xlsx.py
 
 Safe to re-run: upserts by file_stem, so re-running after editing the xlsx
-refreshes clip metadata without touching projects/timeline_items.
+refreshes clip metadata without touching campaigns/timeline_items.
 """
 import re
 from pathlib import Path
