@@ -36,7 +36,7 @@ Scheduled posts, analytics, and recommendations under Campaigns, via Composio. E
 9. Aspect from prompt wording ("vertical" → 9:16 on the edit).
 10. Auto-suggest campaign assignment for generated cuts.
 11. Settings popover clips off the left window edge.
-12. Data hygiene: CORRECTION-notes out of descriptions; photos flagged as stills, not 0.3s "videos".
+12. ~~Data hygiene: CORRECTION-notes out of descriptions; photos flagged as stills, not 0.3s "videos".~~ ✅ Done (`data-hygiene` spec; maintenance checks in `editor/scripts_hygiene.py`).
 13. Bitrate/length presets per destination (Reels vs Stories vs feed).
 
 ## Parallel work matrix

@@ -108,7 +108,9 @@ existing tags, and an existing human description is kept. Mainly useful for clip
 with blank metadata (e.g. via Drive import) rather than through the original xlsx indexing pass.
 
 Re-run `migrate_xlsx.py` any time the xlsx changes — it's a safe upsert by filename and
-won't touch existing projects/timelines/transcripts. `editor/data/editor.db` holds your actual
+won't touch existing projects/timelines/transcripts. By default it imports only rows whose
+media file exists locally, so a stale spreadsheet can't resurrect clips that were pruned from
+the DB; pass `--include-missing` to import every row. `editor/data/editor.db` holds your actual
 project/timeline work, so unlike the rest of this repo's temp/local media, it's committed to git.
 
 ## Tests

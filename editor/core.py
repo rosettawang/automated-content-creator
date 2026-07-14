@@ -1532,7 +1532,12 @@ def _pool_for_generation(conn, clip_ids: list[int], campaign_id) -> list[dict]:
     Only clips whose media is actually downloaded are eligible -- the assembler can
     only trim/concat files that exist, so handing the model catalog-only "ghost"
     clips would produce a timeline that renders but plays black. Non-local clips are
-    dropped here so the model can never pick one."""
+    dropped here so the model can never pick one.
+
+    Photos and sub-second videos are also dropped: a still has no playable duration
+    (it sits at 0s) and a fraction-of-a-second video can't carry a shot, so neither
+    belongs in a video-generation pool. (Stills as 2-3s inserts are a separate,
+    deliberate feature -- not an accidental 0.3s clip.)"""
     if clip_ids:
         ph = ",".join("?" for _ in clip_ids)
         rows = conn.execute(
@@ -1549,9 +1554,25 @@ def _pool_for_generation(conn, clip_ids: list[int], campaign_id) -> list[dict]:
             rows = conn.execute("SELECT * FROM clips ORDER BY file_stem").fetchall()
     else:
         rows = conn.execute("SELECT * FROM clips ORDER BY file_stem").fetchall()
-    pool = [dict(r) for r in rows if find_media_file(r["file_stem"]) is not None]
+    pool = [
+        dict(r) for r in rows
+        if find_media_file(r["file_stem"]) is not None
+        and _usable_for_generation(r)
+    ]
     _attach_moments(conn, pool)
     return pool
+
+
+def _usable_for_generation(row) -> bool:
+    """A clip can back a generated video only if it's a real, playable video shot:
+    not a still (kind='photo', 0s) and not a sub-second fragment that can't carry a
+    shot. Unknown/NULL durations are kept -- the assembler re-probes those."""
+    if (row["kind"] or "") == "photo":
+        return False
+    dur = row["duration_s"]
+    if dur is not None and dur < 1.0:
+        return False
+    return True
 
 
 def _attach_moments(conn, clips: list[dict]) -> None:
