@@ -135,6 +135,10 @@ class SceneSegment(BaseModel):
     t_end: float
     description: str        # what happens in this span (subjects, action, camera/shot)
     things: List[str] = []  # watchlist names visible in this span (verbatim)
+    # Where the notable subjects sit DURING this span, as normalized boxes — so a
+    # later reframe to a different aspect can center on the subject at the right
+    # moment (boxes vary across the clip as the subject/camera moves).
+    regions: List[Region] = []
 
 
 class DeepIndex(BaseModel):
@@ -187,7 +191,11 @@ def _deep_index_content(
         f"{duration:.1f}s. Start a new segment when the action, subject, or shot changes. "
         "For each, describe what happens concretely enough that an editor could pick the "
         "right moment to cut to (action, subjects, camera/framing). Use the transcript to "
-        "inform what's happening." + ts + watch
+        "inform what's happening. Also give each segment `regions`: normalized boxes "
+        "(label, x, y, w, h in 0..1, top-left origin) locating the notable subjects — and "
+        "every watched thing named in that segment's `things` — AS THEY APPEAR IN THAT "
+        "SPAN, using the frame(s) whose timestamp falls in it. Boxes should move across "
+        "segments as the subject or camera moves." + ts + watch
     )})
     return content
 
@@ -220,7 +228,8 @@ def deep_index_batch_request(custom_id: str, frames, duration,
         "Respond with ONLY a JSON object (no prose, no code fences) with keys: "
         "description (string), category (string), tags (string[]), "
         "matched_things (string[]), segments (array of {t_start: number, "
-        "t_end: number, description: string, things: string[]})."
+        "t_end: number, description: string, things: string[], regions: array of "
+        "{label: string, x: number, y: number, w: number, h: number}})."
     )})
     return {
         "custom_id": custom_id,

@@ -46,6 +46,31 @@ def test_export_success_produces_9_16_file(client, make_clip):
     assert Path(res["output"]).exists()
 
 
+def test_auto_framed_kenburns_exports(client, conn, make_clip):
+    """Framing v2 end-to-end: a clip with a moving subject, reframed to 9:16 at
+    assemble time, stores a crop→kb pan that the zoompan export path must render into
+    a valid 9:16 file (not error)."""
+    eid = client.post("/api/edits", json={"name": "pan"}).get_json()["id"]
+    cid = make_clip("PAN", present=True)
+    client.post(f"/api/edits/{eid}/items", json={"clip_id": cid, "in_point": 0, "out_point": 1})
+    # Subject moves left→right across the cut → reframe should store crop != kb.
+    conn.execute("INSERT INTO clip_regions (clip_id, x, y, w, h, t_frame, is_primary) "
+                 "VALUES (?, 0.05, 0.4, 0.2, 0.2, 0.1, 1)", (cid,))
+    conn.execute("INSERT INTO clip_regions (clip_id, x, y, w, h, t_frame, is_primary) "
+                 "VALUES (?, 0.75, 0.4, 0.2, 0.2, 0.9, 1)", (cid,))
+    conn.commit()
+
+    client.put(f"/api/edits/{eid}", json={"aspect": "9:16"})
+    item = client.get(f"/api/edits/{eid}").get_json()["items"][0]
+    assert item["crop_x"] is not None and item["kb_x"] is not None, "expected a stored crop→kb pan"
+
+    r = client.post(f"/api/edits/{eid}/export")
+    assert r.status_code == 200
+    job = _poll_job(client, r.get_json()["job_id"])
+    assert job["finished"] is True and not job.get("error"), job.get("error")
+    assert (job["results"][0]["width"], job["results"][0]["height"]) == (1080, 1920)
+
+
 def test_auto_crop_centers_on_primary_region_not_union(client, make_clip):
     """Framing v2 quick win: with a small watched-thing box on the right and a large
     untied box on the left, the crop centers on the primary (thing-tied) subject —

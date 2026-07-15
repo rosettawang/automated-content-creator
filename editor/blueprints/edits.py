@@ -102,6 +102,10 @@ def update_edit(edit_id):
     conn = get_conn()
     conn.execute(f"UPDATE edits SET {', '.join(fields)} WHERE id = ?", (*values, edit_id))
     conn.commit()
+    # Changing the output aspect invalidates any stored (aspect-specific) crops:
+    # reset + reframe from regions so the timeline matches the new frame.
+    if "aspect" in data:
+        _apply_auto_framing(conn, edit_id, reset=True)
     row = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
     conn.close()
     if not row:
@@ -158,6 +162,7 @@ def generate_into_edit(edit_id):
     if plan_aspect and (edit["aspect"] or "source") == "source":
         conn.execute("UPDATE edits SET aspect = ? WHERE id = ?", (plan_aspect, edit_id))
         aspect_inferred = True
+    _apply_auto_framing(conn, edit_id)  # subject-track the newly appended items (NULL-crop only)
     conn.commit()
     conn.close()
     return jsonify({
@@ -220,6 +225,7 @@ def chat_edit(edit_id):
     new_aspect = new_aspect if new_aspect in ASPECT_DIMS else None
     if new_aspect and new_aspect != (edit["aspect"] or "source"):
         conn.execute("UPDATE edits SET aspect = ? WHERE id = ?", (new_aspect, edit_id))
+    _apply_auto_framing(conn, edit_id)  # timeline was fully replaced; frame the fresh items
     conn.execute(
         "INSERT INTO edit_messages (edit_id, role, content) VALUES (?, 'user', ?)",
         (edit_id, prompt),
@@ -334,6 +340,7 @@ def generate_edit_from_scratch():
                VALUES (?, ?, ?, ?, ?)""",
             (edit_id, sel.clip_id, i, sel.in_point, sel.out_point),
         )
+    _apply_auto_framing(conn, edit_id)  # subject-track framing when aspect != source
     conn.commit()
     conn.close()
     return jsonify({

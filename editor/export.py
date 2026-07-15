@@ -14,7 +14,7 @@ from pathlib import Path
 
 import config
 from db import get_conn
-from media_files import _source_dims, _has_audio
+from media_files import _source_dims, _has_audio, find_media_file
 from jobs_runtime import _update_job, _run_cancellable, _job_is_cancelled, JobCancelled
 
 
@@ -110,6 +110,102 @@ def _auto_crop_from_regions(conn, clip_id: int, target_ar: float, source_dims):
     else:
         cw, ch = 1.0, 1.0 / ratio
     return _clamp_rect(ccx - cw / 2, ccy - ch / 2, cw, ch)
+
+
+def _window_dims(target_ar: float, source_dims) -> tuple[float, float]:
+    """crop_w/crop_h (fractions of the source) for the largest window of aspect
+    `target_ar` that fits inside a `source_dims` frame."""
+    sw, sh = source_dims
+    source_ar = (sw / sh) if sh else 1.0
+    ratio = target_ar / source_ar
+    return (ratio, 1.0) if ratio <= 1 else (1.0, 1.0 / ratio)
+
+
+def _frame_item_from_regions(conn, clip_id, in_point, out_point, target_ar, source_dims):
+    """Framing v2: choose a subject-tracking reframe for ONE cut [in_point, out_point]
+    from the clip's time-stamped regions. Returns {'crop': rect, 'kb': rect|None} or
+    None when there's no usable timed region.
+
+    Uses primary boxes observed inside the cut's own range (the box nearest in_point
+    -> start window, nearest out_point -> end window). If the two barely differ it
+    returns a static crop (kb=None); otherwise a start->end pair the zoompan export
+    path animates so the frame pans with the subject."""
+    if not source_dims:
+        return None
+    rows = conn.execute(
+        """SELECT x, y, w, h, is_primary, t_frame FROM clip_regions
+           WHERE clip_id = ? AND w > 0 AND h > 0 AND t_frame IS NOT NULL""",
+        (clip_id,),
+    ).fetchall()
+    if not rows:
+        return None
+    in_range = [r for r in rows if in_point <= r["t_frame"] <= out_point]
+    pool = in_range or rows
+    primary = [r for r in pool if r["is_primary"]] or pool
+
+    def near(t):
+        r = min(primary, key=lambda r: abs(r["t_frame"] - t))
+        return (r["x"] + r["w"] / 2, r["y"] + r["h"] / 2)
+
+    cw, ch = _window_dims(target_ar, source_dims)
+    scx, scy = near(in_point)
+    ecx, ecy = near(out_point)
+    crop = _clamp_rect(scx - cw / 2, scy - ch / 2, cw, ch)
+    if abs(scx - ecx) < 0.03 and abs(scy - ecy) < 0.03:
+        return {"crop": crop, "kb": None}
+    return {"crop": crop, "kb": _clamp_rect(ecx - cw / 2, ecy - ch / 2, cw, ch)}
+
+
+def _apply_auto_framing(conn, edit_id: int, reset: bool = False) -> None:
+    """Fill crop_*/kb_* on an edit's timeline items from time-stamped regions, decided
+    at assemble time (see Framing v2). No-op unless the edit's aspect differs from
+    source. Only fills items whose crop is currently NULL, so it never clobbers a prior
+    item's framing or a human override — safe to call after an append. `reset=True`
+    (used when the output aspect changes) first clears every item's crop/kb so the
+    whole timeline is reframed for the new aspect. Items with no usable region are left
+    NULL so the export-time _auto_crop_from_regions / center-crop fallback still runs."""
+    erow = conn.execute("SELECT aspect FROM edits WHERE id = ?", (edit_id,)).fetchone()
+    aspect = (erow["aspect"] if erow else None) or "source"
+    if reset:
+        conn.execute(
+            "UPDATE timeline_items SET crop_x=NULL, crop_y=NULL, crop_w=NULL, crop_h=NULL, "
+            "kb_x=NULL, kb_y=NULL, kb_w=NULL, kb_h=NULL WHERE edit_id = ?",
+            (edit_id,),
+        )
+    if aspect not in ASPECT_DIMS:   # 'source' or unknown -> no reframe
+        conn.commit()
+        return
+    ow, oh = ASPECT_DIMS[aspect]
+    target_ar = ow / oh
+    items = conn.execute(
+        """SELECT ti.id, ti.clip_id, ti.in_point, ti.out_point, c.file_stem
+           FROM timeline_items ti JOIN clips c ON c.id = ti.clip_id
+           WHERE ti.edit_id = ? AND ti.crop_x IS NULL ORDER BY ti.position""",
+        (edit_id,),
+    ).fetchall()
+    for it in items:
+        p = find_media_file(it["file_stem"])
+        if not p:
+            continue
+        fr = _frame_item_from_regions(
+            conn, it["clip_id"], it["in_point"], it["out_point"], target_ar, _source_dims(p)
+        )
+        if not fr:
+            continue
+        c, kb = fr["crop"], fr["kb"]
+        if kb:
+            conn.execute(
+                "UPDATE timeline_items SET crop_x=?, crop_y=?, crop_w=?, crop_h=?, "
+                "kb_x=?, kb_y=?, kb_w=?, kb_h=? WHERE id=?",
+                (*c, *kb, it["id"]),
+            )
+        else:
+            conn.execute(
+                "UPDATE timeline_items SET crop_x=?, crop_y=?, crop_w=?, crop_h=?, "
+                "kb_x=NULL, kb_y=NULL, kb_w=NULL, kb_h=NULL WHERE id=?",
+                (*c, it["id"]),
+            )
+    conn.commit()
 
 
 def _reframe_filter(item, out_w: int, out_h: int, duration: float, fps: float) -> str:

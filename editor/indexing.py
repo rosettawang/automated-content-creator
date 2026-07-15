@@ -116,24 +116,59 @@ def _clamp01(v: float) -> float:
         return 0.0
 
 
-def _record_regions(conn, clip_id: int, regions) -> None:
-    """Replace a clip's stored regions. `regions` items may be pydantic Region
-    objects or dicts with label/x/y/w/h. A region whose label matches a watched
-    thing is linked to that thing so 'ask for a thing' returns its box."""
-    conn.execute("DELETE FROM clip_regions WHERE clip_id = ?", (clip_id,))
-    for r in regions or []:
-        label = (getattr(r, "label", None) if not isinstance(r, dict) else r.get("label")) or ""
-        get = (lambda k: getattr(r, k, 0.0)) if not isinstance(r, dict) else (lambda k: r.get(k, 0.0))
-        x, y, w, h = _clamp01(get("x")), _clamp01(get("y")), _clamp01(get("w")), _clamp01(get("h"))
-        if w <= 0 or h <= 0:
-            continue
+def _region_fields(r):
+    """(label, x, y, w, h) from a pydantic Region or a dict, clamped to 0..1.
+    None if the box is degenerate (non-positive width/height)."""
+    label = (getattr(r, "label", None) if not isinstance(r, dict) else r.get("label")) or ""
+    get = (lambda k: getattr(r, k, 0.0)) if not isinstance(r, dict) else (lambda k: r.get(k, 0.0))
+    x, y, w, h = _clamp01(get("x")), _clamp01(get("y")), _clamp01(get("w")), _clamp01(get("h"))
+    if w <= 0 or h <= 0:
+        return None
+    return label.strip(), x, y, w, h
+
+
+def _insert_regions(conn, clip_id: int, regions, t_frame) -> None:
+    """Insert one clip_regions row per region observed at time `t_frame` (None if
+    unknown). Links each box to a watched thing by label, and flags exactly one box
+    per call as `is_primary` — the largest thing-tied box if any is tied, else the
+    largest box overall — the box reframe centers on."""
+    cleaned = [f for f in (_region_fields(r) for r in (regions or [])) if f]
+    if not cleaned:
+        return
+    resolved = []
+    for label, x, y, w, h in cleaned:
         row = conn.execute(
             "SELECT id FROM things WHERE lower(name) = ?", (_norm_thing_name(label),)
         ).fetchone()
+        resolved.append((label, row["id"] if row else None, x, y, w, h))
+    tied = [t for t in resolved if t[1] is not None]
+    primary = max(tied or resolved, key=lambda t: t[4] * t[5])
+    for t in resolved:
+        label, thing_id, x, y, w, h = t
         conn.execute(
-            "INSERT INTO clip_regions (clip_id, thing_id, label, x, y, w, h) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (clip_id, row["id"] if row else None, label.strip(), x, y, w, h),
+            "INSERT INTO clip_regions (clip_id, thing_id, label, x, y, w, h, t_frame, is_primary) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (clip_id, thing_id, label, x, y, w, h, t_frame, 1 if t is primary else 0),
         )
+
+
+def _record_regions(conn, clip_id: int, regions) -> None:
+    """Replace a clip's stored regions with a single-frame set (t_frame unknown).
+    Used by the single-keyframe analysis paths (on-device/photo index, region scan)."""
+    conn.execute("DELETE FROM clip_regions WHERE clip_id = ?", (clip_id,))
+    _insert_regions(conn, clip_id, regions, t_frame=None)
+
+
+def _store_segment_regions(conn, clip_id: int, segments) -> None:
+    """Replace a clip's regions with the deep-index segments' time-stamped boxes:
+    one set per segment, stamped with the segment midpoint, primary flagged per
+    segment. This is the richer, time-aware source assemble-time framing prefers
+    (it can pick the box nearest a cut's in/out point instead of one keyframe)."""
+    conn.execute("DELETE FROM clip_regions WHERE clip_id = ?", (clip_id,))
+    for s in segments:
+        regions = getattr(s, "regions", None) or []
+        if regions:
+            _insert_regions(conn, clip_id, regions, t_frame=(float(s.t_start) + float(s.t_end)) / 2)
 
 
 _THUMB_CANDIDATES = 8
@@ -666,6 +701,7 @@ def _index_clip_background(clip_id: int, path: Path) -> None:
                 _store_speech_segments(conn, clip_id, whisper_result)
             if scene_segments:
                 _store_scene_segments(conn, clip_id, scene_segments)
+                _store_segment_regions(conn, clip_id, scene_segments)
             conn.commit()
         conn.close()
 
@@ -840,6 +876,7 @@ def _store_deep_index(conn, clip_id: int, idx) -> int:
     )
     _record_thing_matches(conn, clip_id, matched)
     _store_scene_segments(conn, clip_id, idx.segments)
+    _store_segment_regions(conn, clip_id, idx.segments)
     conn.commit()
     enqueue_embed(clip_id)  # keep semantic index fresh
     return len(idx.segments)

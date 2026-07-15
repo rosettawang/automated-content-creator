@@ -45,12 +45,13 @@ def test_fresh_db_reaches_full_schema(fresh_db):
     assert EXPECTED_TABLES <= _tables(fresh_db)
 
 
-def test_baseline_recorded_as_version_1(fresh_db):
+def test_all_migrations_recorded_contiguously(fresh_db):
     db.init_db()
     c = db.get_conn()
     versions = [r["version"] for r in c.execute("SELECT version FROM schema_migrations ORDER BY version")]
     c.close()
-    assert versions == [1]
+    expected = [v for v, _ in db._migration_files()]
+    assert versions == expected == list(range(1, len(expected) + 1))
 
 
 def test_clips_has_all_migrated_columns(fresh_db):
@@ -67,7 +68,8 @@ def test_init_db_is_idempotent(fresh_db):
     c = db.get_conn()
     row = c.execute("SELECT COUNT(*) n, MAX(version) m FROM schema_migrations").fetchone()
     c.close()
-    assert row["n"] == 1 and row["m"] == 1
+    files = db._migration_files()
+    assert row["n"] == len(files) and row["m"] == max(v for v, _ in files)
 
 
 def test_refuses_db_newer_than_code(fresh_db):

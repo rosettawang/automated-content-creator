@@ -148,7 +148,7 @@ from export import (
     _EDIT_LIST_COLS, _serialize_timeline, _snapshot_edit, _replace_timeline,
     ASPECT_DIMS, _kb_keys, _clamp_rect, _auto_crop_from_regions, _reframe_filter,
     EXPORT_FPS, _even, _social_bitrate_args, _slugify, _unique_output_path,
-    _run_export_job,
+    _run_export_job, _frame_item_from_regions, _apply_auto_framing, _window_dims,
 )
 
 
