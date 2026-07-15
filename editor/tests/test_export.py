@@ -44,3 +44,29 @@ def test_export_success_produces_9_16_file(client, make_clip):
     res = job["results"][0]
     assert (res["width"], res["height"]) == (1080, 1920)
     assert Path(res["output"]).exists()
+
+
+def test_auto_crop_centers_on_primary_region_not_union(client, make_clip):
+    """Framing v2 quick win: with a small watched-thing box on the right and a large
+    untied box on the left, the crop centers on the primary (thing-tied) subject —
+    not the union midpoint, which would land between them on background."""
+    import export
+    from db import get_conn
+
+    cid = make_clip("SUBJ", present=True)
+    conn = get_conn()
+    tid = conn.execute("INSERT INTO things (name, kind, active) VALUES ('bowl','object',1)").lastrowid
+    # Untied region fills the left half; the watched thing is a small box on the right.
+    conn.execute("INSERT INTO clip_regions (clip_id, thing_id, x, y, w, h) VALUES (?, NULL, 0.0, 0.2, 0.4, 0.6)", (cid,))
+    conn.execute("INSERT INTO clip_regions (clip_id, thing_id, x, y, w, h) VALUES (?, ?, 0.80, 0.45, 0.12, 0.12)", (cid, tid))
+    conn.commit()
+
+    # 9:16 target from a 16:9 source → a narrow vertical window (cw≈0.316, full height).
+    rect = export._auto_crop_from_regions(conn, cid, target_ar=9 / 16, source_dims=(1920, 1080))
+    conn.close()
+    assert rect is not None
+    x, y, w, h = rect
+    # The window must contain the thing's center (0.86), i.e. it tracked the subject
+    # to the right — not the union center (~0.46) which sits on the left-hand box.
+    assert x <= 0.86 <= x + w, rect
+    assert x > 0.30, f"window still centered near the union midpoint: {rect}"

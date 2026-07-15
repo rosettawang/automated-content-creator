@@ -80,8 +80,12 @@ def _clamp_rect(x, y, w, h):
 def _auto_crop_from_regions(conn, clip_id: int, target_ar: float, source_dims):
     """Derive a reframe crop (x,y,w,h fractions) that keeps the detected subject in
     shot: the largest window of the target aspect that fits the frame, centered on
-    the subject regions. Prefers regions tied to a watched thing. None if no regions
-    or dimensions are known."""
+    the PRIMARY subject region. None if no regions or dimensions are known.
+
+    Center on a single primary box, never the union of all regions: a watched-thing
+    box if any (largest by area), else the largest box overall. The union of several
+    spread-out regions approaches the whole frame and its center lands on background
+    — the exact off-center failure this reframe is meant to prevent."""
     if not source_dims:
         return None
     rows = conn.execute(
@@ -91,12 +95,10 @@ def _auto_crop_from_regions(conn, clip_id: int, target_ar: float, source_dims):
     ).fetchall()
     if not rows:
         return None
-    chosen = [r for r in rows if r["thing_id"] is not None] or list(rows)
-    minx = min(r["x"] for r in chosen)
-    miny = min(r["y"] for r in chosen)
-    maxx = max(r["x"] + r["w"] for r in chosen)
-    maxy = max(r["y"] + r["h"] for r in chosen)
-    ccx, ccy = (minx + maxx) / 2, (miny + maxy) / 2
+    pool = [r for r in rows if r["thing_id"] is not None] or list(rows)
+    primary = max(pool, key=lambda r: r["w"] * r["h"])
+    ccx = primary["x"] + primary["w"] / 2
+    ccy = primary["y"] + primary["h"] / 2
 
     sw, sh = source_dims
     source_ar = (sw / sh) if sh else 1.0
