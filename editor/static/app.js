@@ -171,6 +171,12 @@ function renderClipList() {
       (clip.available_locally ? "" : " unavailable") +
       (selectedClip && selectedClip.id === clip.id ? " selected" : "") +
       (bulkSelection.has(clip.id) ? " bulk-selected" : "");
+    // Unified non-local tooltip copy (matches the timeline badge): name the fix.
+    if (!clip.available_locally) {
+      el.title = clip.source_kind
+        ? `${clip.file_stem} isn't downloaded — drop it on the timeline and use Re-download to fetch it from its source (${clip.source_kind}).`
+        : `${clip.file_stem} isn't downloaded and has no recorded source — import its file to use it.`;
+    }
     el.innerHTML = `
       <input type="checkbox" class="clip-check" ${bulkSelection.has(clip.id) ? "checked" : ""}>
       <div class="clip-body">
@@ -248,7 +254,7 @@ window.studioEditor = {
   openEdit: async (editId) => {
     try {
       const edit = await api(`/api/edits/${editId}`);
-      currentCampaignId = edit.project_id != null ? String(edit.project_id) : "";
+      currentCampaignId = edit.campaign_id != null ? String(edit.campaign_id) : "";
       currentEditId = String(editId);
       await loadCampaigns();   // syncs campaign selector, then loadEdits() keeps currentEditId → loads it
     } catch (_) { /* ignore */ }
@@ -994,8 +1000,77 @@ document.getElementById("generate-btn").addEventListener("click", async () => {
     if (r.aspect_inferred && r.aspect && window.showToast) {
       showToast(`Framing: ${ASPECT_LABELS[r.aspect] || r.aspect} — change in ⚙`, { type: "info" });
     }
+    // Generated with no campaign chosen? Offer the best keyword match — never auto-assign.
+    if (!body.campaign_id) suggestCampaignForEdit(r.id, prompt);
   } catch (err) { el.textContent = `Error: ${err.message}`; }
 });
+
+// Suggest a campaign for a freshly generated cut when none was selected: a simple
+// client-side keyword match of the prompt against each campaign's name/description.
+// Purely a suggestion — it shows a dismissible banner and never assigns silently.
+const _SUGGEST_STOP = new Set(
+  "the a an and or of to in on for with your you it is at this that make making made short reel reels video clip clips cut edit about into from show showing footage".split(" ")
+);
+async function suggestCampaignForEdit(editId, prompt) {
+  let campaigns = [];
+  try { campaigns = await api("/api/campaigns"); } catch { return; }
+  if (!campaigns.length) return;
+  const words = new Set(
+    (prompt.toLowerCase().match(/[a-z0-9]+/g) || []).filter((w) => w.length > 2 && !_SUGGEST_STOP.has(w))
+  );
+  if (!words.size) return;
+  let best = null, bestScore = 0;
+  for (const c of campaigns) {
+    const hay = `${c.name || ""} ${c.description || ""}`.toLowerCase();
+    let score = 0;
+    for (const w of words) if (hay.includes(w)) score++;
+    if (score > bestScore) { best = c; bestScore = score; }
+  }
+  if (best && bestScore >= 1) showCampaignBanner(editId, best);
+}
+
+function showCampaignBanner(editId, campaign) {
+  const old = document.getElementById("campaign-suggest-banner");
+  if (old) old.remove();
+  const bar = document.createElement("div");
+  bar.id = "campaign-suggest-banner";
+  Object.assign(bar.style, {
+    position: "fixed", top: "0.6rem", left: "50%", transform: "translateX(-50%)",
+    zIndex: "10000", background: "#232f23", border: "1px solid #4a6a4a",
+    color: "#e6f0e6", borderRadius: "8px", padding: "0.5rem 0.7rem",
+    fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "0.6rem",
+    boxShadow: "0 6px 20px rgba(0,0,0,0.45)", fontFamily: "-apple-system, sans-serif",
+  });
+  const text = document.createElement("span");
+  text.textContent = `Assign this cut to “${campaign.name}”?`;
+  const yes = document.createElement("button");
+  yes.textContent = "Yes";
+  const no = document.createElement("button");
+  no.textContent = "No";
+  for (const b of [yes, no]) {
+    Object.assign(b.style, {
+      fontSize: "0.8rem", padding: "0.25rem 0.7rem", borderRadius: "5px",
+      cursor: "pointer", border: "1px solid #4a6a4a", background: "#2c2c2c", color: "#eee",
+    });
+  }
+  Object.assign(yes.style, { background: "#3a5c3a", color: "#fff" });
+  const close = () => bar.remove();
+  no.onclick = close;
+  yes.onclick = async () => {
+    try {
+      await api(`/api/edits/${editId}`, { method: "PUT", body: JSON.stringify({ campaign_id: campaign.id }) });
+      currentCampaignId = String(campaign.id);
+      if (typeof loadEdits === "function") await loadEdits();
+      if (window.showToast) showToast(`Assigned to “${campaign.name}”.`, { type: "success" });
+    } catch (err) {
+      if (window.showToast) showToast(`Couldn't assign: ${err.message}`, { type: "error" });
+    }
+    close();
+  };
+  bar.append(text, yes, no);
+  document.body.appendChild(bar);
+  setTimeout(() => { if (bar.isConnected) close(); }, 15000);
+}
 
 document.getElementById("transcribe-btn").addEventListener("click", async () => {
   if (!selectedClip) return;
