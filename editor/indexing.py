@@ -109,24 +109,6 @@ def _record_thing_matches(conn, clip_id: int, matched_names: list[str]) -> None:
             )
 
 
-def _ensure_thing_thumbs_table() -> None:
-    conn = get_conn()
-    try:
-        conn.execute(
-            """CREATE TABLE IF NOT EXISTS thing_thumbs (
-                   thing_id INTEGER PRIMARY KEY REFERENCES things(id) ON DELETE CASCADE,
-                   clip_id INTEGER REFERENCES clips(id) ON DELETE SET NULL,
-                   chosen_at TEXT DEFAULT CURRENT_TIMESTAMP
-               )"""
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-_ensure_thing_thumbs_table()
-
-
 def _clamp01(v: float) -> float:
     try:
         return max(0.0, min(1.0, float(v)))

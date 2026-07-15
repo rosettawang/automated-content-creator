@@ -5,7 +5,7 @@ import os
 from flask import Flask
 
 import core
-from core import init_db, reconcile_orphaned_jobs, _no_cache_static
+from core import init_db, reconcile_orphaned_jobs, _no_cache_static, _backfill_clip_sources
 from blueprints.pages import bp as pages_bp
 from blueprints.jobs import bp as jobs_bp
 from blueprints.clips import bp as clips_bp
@@ -40,6 +40,7 @@ def serve(port: int | None = None) -> None:
     port = port or int(os.environ.get("PORT", "5001"))
     init_db()
     reconcile_orphaned_jobs()
+    _backfill_clip_sources()  # data backfill; needs the migrated schema to exist first
     if os.environ.get("FLASK_DEBUG") == "1":
         app.run(debug=True, port=port)
     else:

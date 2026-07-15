@@ -262,28 +262,16 @@ def _clips_table_exists(conn) -> bool:
     ).fetchone() is not None
 
 
-def _ensure_source_columns() -> None:
-    """Self-contained provenance-column guarantee (mirrors the other _ensure_* calls),
-    so this file works even if run before db.init_db()'s migration."""
-    conn = get_conn()
-    try:
-        if not _clips_table_exists(conn):
-            return  # fresh DB: init_db() will create clips with these columns
-        cols = {r["name"] for r in conn.execute("PRAGMA table_info(clips)")}
-        for c in ("source_kind", "source_url"):
-            if c not in cols:
-                conn.execute(f"ALTER TABLE clips ADD COLUMN {c} TEXT")
-        conn.commit()
-    finally:
-        conn.close()
-
-
 def _backfill_clip_sources() -> None:
     """One-time-ish best effort for rows that predate provenance tracking: the seed
     library was all ingested from Google Photos (see README), so any clip with no
     recorded source is marked 'photos' — album-level re-download then works via
     relink-by-stem. Cheap no-op once every row has a source. Also seeds the known
-    album list from the intake-log xlsx when we don't have one yet."""
+    album list from the intake-log xlsx when we don't have one yet.
+
+    The clips.source_kind/source_url columns are guaranteed by the migration
+    baseline, so this runs at startup *after* init_db() (see app.serve /
+    desktop.main), no longer at import time."""
     conn = get_conn()
     try:
         if not _clips_table_exists(conn):
@@ -299,15 +287,6 @@ def _backfill_clip_sources() -> None:
         albums = _read_album_urls_from_xlsx()
         if albums:
             _remember_photos_albums(albums)
-
-
-
-
-_ensure_source_columns()
-
-
-_backfill_clip_sources()
-
 
 
 

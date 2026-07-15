@@ -11,7 +11,7 @@ import threading
 
 import webview
 
-from app import app, init_db, reconcile_orphaned_jobs
+from app import app, init_db, reconcile_orphaned_jobs, _backfill_clip_sources
 
 
 def _pick_port(preferred=5001):
@@ -60,6 +60,7 @@ def run_flask():
 def main():
     init_db()
     reconcile_orphaned_jobs()
+    _backfill_clip_sources()  # data backfill; needs the migrated schema to exist first
     thread = threading.Thread(target=run_flask, daemon=True)
     thread.start()
     api = NativeApi()
