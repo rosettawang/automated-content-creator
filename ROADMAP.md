@@ -18,7 +18,7 @@ The project can no longer verify itself by hand; every refactor bets days of wor
 
 The blueprint split fixed `app.py`; don't let its problem respawn elsewhere.
 
-4. **Split `core.py`** along the seams that already exist in its section comments: `db/`, `media` (probe/ffmpeg/proxies), `indexing` (vision/whisper/regions), `jobs`, `catalog` (AI pool + formatting). Rule of thumb: no module over ~800 lines, no business logic in blueprint routes.
+4. ~~**Split `core.py`**~~ ✅ Shipped. Decomposed along its section seams into `settings.py`, `export.py`, `indexing.py`, `catalog.py`, `ingest.py` (plus the earlier `config.py`/`jobs_runtime.py`/`media_files.py`); `core.py` is now a ~205-line re-export facade so blueprints' `from core import *` is unchanged. Redundant import-time schema shims removed (migrations own the baseline). `indexing.py` is ~1k lines (the one cohesive pipeline the spec kept whole); everything else is under ~800.
 5. ~~**Schema migrations.**~~ ✅ Shipped. `editor/migrations/NNN_*.sql` + a `schema_migrations` table; `db.py`'s `init_db()` applies pending migrations (baseline = `001`, adopts existing DBs cleanly, refuses a future-version DB). Round-trip test in `tests/test_migrations.py`. Remaining `core.py` `_ensure_*` cleanup carried into `specs/core-split.md`.
 6. **Docs follow code in the same commit.** README still describes the pre-refactor world in places (run instructions, window layout). Make "update README/CLAUDE.md" part of any commit that changes how the app is run or navigated. A short `CLAUDE.md` at repo root telling agent sessions the conventions (run tests, thin routes, migrations, commit style) pays for itself immediately given how much of this codebase is agent-written.
 
@@ -34,9 +34,10 @@ Scheduled posts, analytics, and recommendations under Campaigns, via Composio. E
 ## Priority 4 — Papercuts (opportunistic, none blocking)
 
 9. Aspect from prompt wording ("vertical" → 9:16 on the edit).
-10. Auto-suggest campaign assignment for generated cuts.
-11. Settings popover clips off the left window edge.
+10. ~~Auto-suggest campaign assignment for generated cuts.~~ ✅ Done (dismissible banner, `editor-ux-papercuts`).
+11. ~~Settings popover clips off the left window edge.~~ ✅ Done (flip/clamp on open).
 12. ~~Data hygiene: CORRECTION-notes out of descriptions; photos flagged as stills, not 0.3s "videos".~~ ✅ Done (`data-hygiene` spec; maintenance checks in `editor/scripts_hygiene.py`).
+    - Also from `editor-ux-papercuts`: ✅ program idle poster, Cuts newest-first + aspect badge, non-local tooltip copy. ⏳ still open: Cuts export-status + "Open folder" (needs a backend export record; desktop-only for folder open).
 13. Bitrate/length presets per destination (Reels vs Stories vs feed).
 
 ## Parallel work matrix
@@ -47,14 +48,14 @@ Every spec in `specs/` declares which files it owns; two sessions may run concur
 |---|---|---|---|
 | ~~`test-suite`~~ (shipped) | everything | — | — |
 | ~~`schema-migrations`~~ (shipped) | — | — | — |
-| `core-split` | frontend-only, tests | **all other backend specs** | test-suite (strongly advised) |
-| `aspect-from-prompt` | frontend, tests, data-hygiene | core-split | — |
+| ~~`core-split`~~ (shipped) | — | — | — |
+| `aspect-from-prompt` | frontend, tests, data-hygiene | — | — |
 | `editor-ux-papercuts` | all backend specs | — | — |
 | `data-hygiene` | code specs (it edits data) | — | — |
-| `framing-and-provenance` | frontend, tests | core-split, its own other half | — (schema-migrations shipped) |
-| `social-publishing` | frontend, tests, data-hygiene | core-split | test-suite gates real posting |
+| `framing-and-provenance` | frontend, tests | its own other half | — (schema-migrations shipped) |
+| `social-publishing` | frontend, tests, data-hygiene | — | test-suite gates real posting |
 
-A good next split: `test-suite` and `schema-migrations` are both shipped, so `core-split` is unblocked — run it **alone** (it touches everyone's imports, and now also removes the redundant `_ensure_*` per its carryover note), then the feature specs.
+`test-suite`, `schema-migrations`, and `core-split` are all shipped, so the feature specs (`aspect-from-prompt`, `framing-and-provenance`, `social-publishing`) are unblocked — they no longer collide with an in-flight import-touching refactor.
 
 ## Process guardrails (cheap, start now)
 
