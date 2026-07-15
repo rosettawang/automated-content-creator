@@ -152,6 +152,26 @@ from jobs_runtime import (  # explicit: underscore names for clarity/linters
 )
 
 
+# Settings + provenance memory (on-device toggle, remembered Photos albums) live
+# in settings (leaf: db + config). Re-exported for `from core import *`.
+from settings import *  # noqa: F401,F403
+from settings import (
+    _get_setting, _set_setting, _use_on_device, _photos_albums,
+    _remember_photos_albums, _read_album_urls_from_xlsx,
+)
+
+
+# Timeline serialization + social export/reframe live in export (leaf: db, config,
+# media_files, jobs_runtime). Re-exported for `from core import *`.
+from export import *  # noqa: F401,F403
+from export import (
+    _EDIT_LIST_COLS, _serialize_timeline, _snapshot_edit, _replace_timeline,
+    ASPECT_DIMS, _kb_keys, _clamp_rect, _auto_crop_from_regions, _reframe_filter,
+    EXPORT_FPS, _even, _social_bitrate_args, _slugify, _unique_output_path,
+    _run_export_job,
+)
+
+
 def _run_drive_job(job_id: str, urls: list[str]) -> None:
     conn = get_conn()
     results = []
@@ -212,71 +232,6 @@ def _run_photos_job(job_id: str, urls: list[str]) -> None:
     conn.commit()
     conn.close()
     _update_job(job_id, finished=True, current=None, phase="done", results=results)
-
-
-def _get_setting(key: str, default: str | None = None) -> str | None:
-    conn = get_conn()
-    try:
-        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
-        return row["value"] if row else default
-    finally:
-        conn.close()
-
-
-def _set_setting(key: str, value: str) -> None:
-    conn = get_conn()
-    conn.execute(
-        "INSERT INTO settings (key, value) VALUES (?, ?) "
-        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        (key, value),
-    )
-    conn.commit()
-    conn.close()
-
-
-def _use_on_device() -> bool:
-    """Live 'analyze on-device' setting: the stored toggle, or the env default if unset."""
-    val = _get_setting("on_device_vision")
-    if val is None:
-        return ON_DEVICE_VISION_DEFAULT
-    return val == "1"
-
-
-def _photos_albums() -> list[str]:
-    try:
-        return json.loads(_get_setting("photos_albums") or "[]")
-    except Exception:
-        return []
-
-
-def _remember_photos_albums(urls) -> None:
-    """Union new album URLs into the stored list (dedup, order-preserving)."""
-    merged = list(dict.fromkeys([*_photos_albums(), *[u for u in urls if u]]))
-    _set_setting("photos_albums", json.dumps(merged))
-
-
-def _read_album_urls_from_xlsx() -> list[str]:
-    """Best-effort: pull the shared Google Photos album link(s) out of the committed
-    intake-log spreadsheet, so a fresh checkout can re-download the seed library."""
-    xlsx = REPO_ROOT / "content_intake_log.xlsx"
-    if not xlsx.exists():
-        return []
-    try:
-        import openpyxl
-        wb = openpyxl.load_workbook(xlsx, read_only=True)
-        ws = wb["Intake Log"]
-        header = [c.value for c in next(ws.iter_rows(max_row=1))]
-        if "Google Photos Link" not in header:
-            return []
-        idx = header.index("Google Photos Link")
-        urls = []
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            v = row[idx] if idx < len(row) else None
-            if v and str(v).startswith("http"):
-                urls.append(str(v).strip())
-        return list(dict.fromkeys(urls))
-    except Exception:
-        return []
 
 
 def _clips_table_exists(conn) -> bool:
@@ -1599,273 +1554,6 @@ def _prompt_with_campaign_context(conn, campaign_id, prompt: str) -> str:
     return prompt
 
 
-_EDIT_LIST_COLS = """
-    e.*, p.name AS campaign_name,
-    COUNT(t.id) AS item_count,
-    COALESCE(SUM(t.out_point - t.in_point), 0) AS duration_s,
-    (SELECT ti.clip_id FROM timeline_items ti
-       WHERE ti.edit_id = e.id ORDER BY ti.position LIMIT 1) AS first_clip_id
-"""
-
-
-def _serialize_timeline(conn, edit_id: int) -> str:
-    """JSON of the current timeline_items (order + trims) for snapshotting."""
-    import json
-    rows = conn.execute(
-        "SELECT clip_id, position, in_point, out_point FROM timeline_items "
-        "WHERE edit_id = ? ORDER BY position",
-        (edit_id,),
-    ).fetchall()
-    return json.dumps([dict(r) for r in rows])
-
-
-def _snapshot_edit(conn, edit_id: int, label: str) -> None:
-    """Push the current timeline onto the edit's undo stack."""
-    conn.execute(
-        "INSERT INTO edit_snapshots (edit_id, label, data) VALUES (?, ?, ?)",
-        (edit_id, label, _serialize_timeline(conn, edit_id)),
-    )
-
-
-def _replace_timeline(conn, edit_id: int, selections) -> None:
-    """Replace all timeline_items for an edit with an ordered list of selections
-    (objects with clip_id/in_point/out_point)."""
-    conn.execute("DELETE FROM timeline_items WHERE edit_id = ?", (edit_id,))
-    for i, sel in enumerate(selections):
-        conn.execute(
-            "INSERT INTO timeline_items (edit_id, clip_id, position, in_point, out_point) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (edit_id, sel.clip_id, i, sel.in_point, sel.out_point),
-        )
-
-
-
-
-ASPECT_DIMS = {
-    "9:16": (1080, 1920),
-    "1:1": (1080, 1080),
-    "16:9": (1920, 1080),
-    "4:5": (1080, 1350),
-}
-
-
-def _kb_keys(item) -> tuple | None:
-    """Return the Ken Burns END rect if fully set, else None."""
-    ex, ey, ew, eh = item["kb_x"], item["kb_y"], item["kb_w"], item["kb_h"]
-    return None if None in (ex, ey, ew, eh) else (ex, ey, ew, eh)
-
-
-def _clamp_rect(x, y, w, h):
-    w = max(0.01, min(1.0, w)); h = max(0.01, min(1.0, h))
-    x = max(0.0, min(1.0 - w, x)); y = max(0.0, min(1.0 - h, y))
-    return x, y, w, h
-
-
-
-
-def _auto_crop_from_regions(conn, clip_id: int, target_ar: float, source_dims):
-    """Derive a reframe crop (x,y,w,h fractions) that keeps the detected subject in
-    shot: the largest window of the target aspect that fits the frame, centered on
-    the subject regions. Prefers regions tied to a watched thing. None if no regions
-    or dimensions are known."""
-    if not source_dims:
-        return None
-    rows = conn.execute(
-        """SELECT x, y, w, h, thing_id FROM clip_regions
-           WHERE clip_id = ? AND w > 0 AND h > 0""",
-        (clip_id,),
-    ).fetchall()
-    if not rows:
-        return None
-    chosen = [r for r in rows if r["thing_id"] is not None] or list(rows)
-    minx = min(r["x"] for r in chosen)
-    miny = min(r["y"] for r in chosen)
-    maxx = max(r["x"] + r["w"] for r in chosen)
-    maxy = max(r["y"] + r["h"] for r in chosen)
-    ccx, ccy = (minx + maxx) / 2, (miny + maxy) / 2
-
-    sw, sh = source_dims
-    source_ar = (sw / sh) if sh else 1.0
-    # crop_w/crop_h (fraction space) so that pixel aspect == target_ar; take the
-    # largest that still fits inside the frame.
-    ratio = target_ar / source_ar
-    if ratio <= 1:
-        cw, ch = ratio, 1.0
-    else:
-        cw, ch = 1.0, 1.0 / ratio
-    return _clamp_rect(ccx - cw / 2, ccy - ch / 2, cw, ch)
-
-
-def _reframe_filter(item, out_w: int, out_h: int, duration: float, fps: float) -> str:
-    """ffmpeg -vf chain that reframes a source clip into out_w x out_h.
-
-    - Static crop: if crop_* is set, select that region, then cover-scale.
-    - Ken Burns: if BOTH crop_* (start) and kb_* (end) are set, animate a moving/
-      zooming window from start->end across the clip via `zoompan` (a variable-size
-      `crop` triggers filter-reinit errors, so zoompan is the reliable tool)."""
-    cx, cy, cw, ch = item["crop_x"], item["crop_y"], item["crop_w"], item["crop_h"]
-    has_crop = None not in (cx, cy, cw, ch)
-    kb = _kb_keys(item)
-
-    if has_crop and kb:
-        sx, sy, sw, sh = _clamp_rect(cx, cy, cw, ch)
-        ex, ey, ew, eh = _clamp_rect(*kb)
-        n = max(1, round(float(duration) * (fps or 30)))
-        # Zoom is driven by the window WIDTH fraction (z = 1/width); the window is
-        # centered on the interpolated center point. zoompan clamps x/y in range.
-        zs, ze = 1.0 / sw, 1.0 / ew
-        cxs, cxe = sx + sw / 2, ex + ew / 2   # center x, start/end (fractions)
-        cys, cye = sy + sh / 2, ey + eh / 2
-        prog = f"(on/{n})"
-        z = f"({zs}+({ze}-{zs})*{prog})"
-        x = f"({cxs}+({cxe}-{cxs})*{prog})*iw*zoom-ow/2"
-        y = f"({cys}+({cye}-{cys})*{prog})*ih*zoom-oh/2"
-        # zoompan outputs exactly out_w x out_h already.
-        return (f"zoompan=z='{z}':x='{x}':y='{y}':d=1:s={out_w}x{out_h}:fps={fps or 30},"
-                f"setsar=1")
-
-    chain = []
-    if has_crop:
-        cx, cy, cw, ch = _clamp_rect(cx, cy, cw, ch)
-        chain.append(f"crop=iw*{cw}:ih*{ch}:iw*{cx}:ih*{cy}")
-    # Named w=/h= required alongside force_original_aspect_ratio (ffmpeg 8 no
-    # longer accepts the abbreviated option name or mixing positional args).
-    chain.append(f"scale=w={out_w}:h={out_h}:force_original_aspect_ratio=increase")
-    chain.append(f"crop={out_w}:{out_h}")
-    chain.append("setsar=1")
-    return ",".join(chain)
-
-
-
-
-EXPORT_FPS = 30
-
-
-
-
-
-
-def _even(n: int) -> int:
-    """libx264 needs even dimensions."""
-    return n - (n % 2)
-
-
-def _social_bitrate_args(dims: tuple[int, int]) -> list[str]:
-    """Cap the H.264 bitrate to a social-sane target instead of letting a CRF encode
-    of clean footage balloon to ~20 Mbps. ~0.1 bits/px/frame → ≈10 Mbps at 1080×1920,
-    which sits above where IG/TikTok re-encode from but well below the wasteful default.
-    Clamped to [6, 16] Mbps."""
-    w, h = dims
-    mbps = max(6.0, min(16.0, (w * h * EXPORT_FPS * 0.10) / 1_000_000))
-    return ["-b:v", f"{mbps:.1f}M", "-maxrate", f"{mbps * 1.3:.1f}M",
-            "-bufsize", f"{mbps * 2:.1f}M"]
-
-
-def _slugify(name: str) -> str:
-    """ASCII-safe filename stem: drop Unicode (e.g. the '…' in a truncated edit name),
-    collapse whitespace/punctuation to underscores."""
-    ascii_only = (name or "").encode("ascii", "ignore").decode("ascii")
-    slug = re.sub(r"[^A-Za-z0-9._-]+", "_", ascii_only).strip("._-")
-    return slug or "edit"
-
-
-def _unique_output_path(stem: str, suffix: str = ".mp4") -> Path:
-    """A non-colliding path under CLIPS_OUT — never silently overwrite a prior render."""
-    CLIPS_OUT.mkdir(parents=True, exist_ok=True)
-    candidate = CLIPS_OUT / f"{stem}{suffix}"
-    n = 2
-    while candidate.exists():
-        candidate = CLIPS_OUT / f"{stem}_{n}{suffix}"
-        n += 1
-    return candidate
-
-
-def _run_export_job(job_id, name, explicit_aspect, dims, plan):
-    """Render the timeline to a social-normalized MP4 with live progress. `plan` is a
-    list of self-contained item dicts (source path + in/out + crop/kb) so it needs no
-    request context. Mirrors the import-job pattern: total = segments + 1 concat step."""
-    region_conn = get_conn() if explicit_aspect else None
-    output_path = None
-    try:
-        _update_job(job_id, total=len(plan) + 1, phase="encoding")
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp = Path(tmp)
-            segment_paths = []
-            for i, item in enumerate(plan):
-                if _job_is_cancelled(job_id):
-                    raise JobCancelled()
-                source = Path(item["source"])
-                _update_job(job_id, current=f"{source.name} ({i + 1}/{len(plan)})")
-                segment = tmp / f"segment_{i:03d}.mp4"
-                duration = item["out_point"] - item["in_point"]
-
-                if explicit_aspect:
-                    frame_item = item
-                    if None in (item["crop_x"], item["crop_y"], item["crop_w"], item["crop_h"]):
-                        auto = _auto_crop_from_regions(
-                            region_conn, item["clip_id"], dims[0] / dims[1], _source_dims(source)
-                        )
-                        if auto:
-                            frame_item = dict(item)
-                            (frame_item["crop_x"], frame_item["crop_y"],
-                             frame_item["crop_w"], frame_item["crop_h"]) = auto
-                    vf = _reframe_filter(frame_item, dims[0], dims[1], duration, EXPORT_FPS)
-                    vf += f",fps={EXPORT_FPS},format=yuv420p"
-                else:
-                    vf = (
-                        f"scale=w={dims[0]}:h={dims[1]}:force_original_aspect_ratio=decrease,"
-                        f"pad={dims[0]}:{dims[1]}:(ow-iw)/2:(oh-ih)/2:color=black,"
-                        f"setsar=1,fps={EXPORT_FPS},format=yuv420p"
-                    )
-
-                cmd = ["ffmpeg", "-y", "-ss", str(item["in_point"]), "-i", str(source)]
-                has_audio = _has_audio(source)
-                if not has_audio:
-                    cmd += ["-f", "lavfi", "-t", str(duration),
-                            "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
-                cmd += ["-t", str(duration), "-vf", vf,
-                        "-map", "0:v:0", "-map", ("1:a:0" if not has_audio else "0:a:0"),
-                        "-r", str(EXPORT_FPS), "-vsync", "cfr",
-                        "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
-                        *_social_bitrate_args(dims),
-                        "-c:a", "aac", "-ar", "48000", "-ac", "2",
-                        "-video_track_timescale", "90000",
-                        str(segment)]
-                _run_cancellable(job_id, cmd)
-                segment_paths.append(segment)
-                _update_job(job_id, done=i + 1)
-
-            if _job_is_cancelled(job_id):
-                raise JobCancelled()
-            _update_job(job_id, phase="stitching", current="joining clips")
-            concat_list = tmp / "concat.txt"
-            concat_list.write_text("\n".join(f"file '{p}'" for p in segment_paths))
-            # Sanitized, collision-free name (no silent overwrite of a prior render).
-            output_path = _unique_output_path(_slugify(name))
-            # Segments share codec/geometry/fps/audio params, so stream-copy is valid and
-            # lossless; +faststart moves the moov atom up front for instant web playback.
-            _run_cancellable(
-                job_id,
-                ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list),
-                 "-c", "copy", "-movflags", "+faststart", str(output_path)],
-            )
-            _update_job(job_id, done=len(plan) + 1, finished=True, current=None, phase="done",
-                        results=[{"output": str(output_path),
-                                  "width": dims[0], "height": dims[1], "fps": EXPORT_FPS}])
-    except JobCancelled:
-        # Remove any partial output left by a killed concat step.
-        if output_path is not None:
-            Path(output_path).unlink(missing_ok=True)
-        _update_job(job_id, finished=True, phase="cancelled", current=None,
-                    error="Export cancelled.")
-    except subprocess.CalledProcessError as e:
-        tail = (e.stderr or b"").decode("utf-8", "replace")[-500:] if isinstance(e.stderr, (bytes, bytearray)) else str(e)
-        _update_job(job_id, finished=True, phase="error", error=f"ffmpeg failed: {tail}")
-    except Exception as e:
-        _update_job(job_id, finished=True, phase="error", error=str(e))
-    finally:
-        if region_conn is not None:
-            region_conn.close()
 
 
 # Re-export everything (including _underscore helpers/state) so blueprints can

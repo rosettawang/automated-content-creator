@@ -32,8 +32,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # flat-import editor m
 import db  # noqa: E402
 db.DB_PATH = _TMP / "editor.db"
 
+import config  # noqa: E402
+config.CLIPS_OUT = _TMP / "clips_out"    # export output lands here, not the repo (export.py reads config.CLIPS_OUT)
+
 import core  # noqa: E402
-core.CLIPS_OUT = _TMP / "clips_out"     # export output lands here, not the repo
 
 from app import create_app  # noqa: E402
 from claude_client import ClipSelection, RoughCutPlan, EditChatResult  # noqa: E402
