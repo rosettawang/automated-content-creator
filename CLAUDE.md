@@ -11,7 +11,15 @@ Most code here is written by Claude sessions, sometimes several in parallel. The
 
 ## Code conventions
 
-- `editor/app.py` is a thin entrypoint; routes live in `editor/blueprints/` and must stay thin (no business logic in route handlers). Shared logic lives in `editor/core.py` — which is over budget; when touching it, prefer extracting a module over adding to it. Target: no module over ~800 lines.
+- `editor/app.py` is a thin entrypoint; routes live in `editor/blueprints/` and must stay thin (no business logic in route handlers).
+- **Shared logic is split into focused modules — go straight to the right one instead of reading everything.** `core.py` is now just a ~205-line re-export facade (so blueprints' `from core import *` keeps working); it holds no business logic. The real code lives in:
+  - `indexing.py` — content-understanding pipeline: vision/whisper/deep-index, things/regions, faces, motion, embeddings, + their job workers (the one big file, ~1k lines)
+  - `export.py` — timeline serialization + social export/reframe (Ken Burns, aspect crop)
+  - `catalog.py` — AI-facing library view: generation clip pool, moments, clip decoration, campaign membership
+  - `ingest.py` — register/dedup a file as a clip (kicks off indexing), unzip, Drive/Photos import jobs
+  - `media_files.py` — probe/proxy/quality/frame-sampling; `settings.py` — on-device toggle + remembered Photos albums; `jobs_runtime.py` — durable job registry; `config.py` — env/paths/constants
+  - Dependency DAG (never violate): `config`/`db` → `jobs_runtime`/`media_files`/`settings` → `indexing`/`export` → `catalog`/`ingest` → `core`. No module imports `core`; no cycles.
+- Adding shared logic: put it in the module that owns that concern (extract a new one if it fits nothing), then re-export it from `core.py` alongside the others. Prefer extracting over growing a file. Target: no module over ~800 lines (`indexing.py` is the known exception — one cohesive pipeline).
 - Schema changes go through migrations (see `ROADMAP.md` Priority 2), not ad-hoc `CREATE TABLE`/`ALTER` scattered in code.
 - Long work runs as a job (`jobs` table, reconciled at boot) — never inside an HTTP request.
 - Fail loudly: any user-facing failure (playback, export, publish) must surface in the UI, never only in a log. Pre-flight checks over post-hoc errors.
