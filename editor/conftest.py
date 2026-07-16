@@ -136,8 +136,9 @@ def mock_ai(monkeypatch):
                 for c in clips[:2]]
         return RoughCutPlan(concept="Test concept", selections=sels, aspect=None)
 
-    def fake_revise(instruction, current_timeline, clips):
-        calls["revise"].append({"instruction": instruction, "current": current_timeline, "clips": clips})
+    def fake_revise(instruction, current_timeline, clips, aspect=None):
+        calls["revise"].append({"instruction": instruction, "current": current_timeline,
+                                "clips": clips, "aspect": aspect})
         # Return the whole pool so the revised timeline visibly differs from a
         # single-item starting timeline (lets the undo test assert a real change).
         sels = [ClipSelection(clip_id=c["id"], in_point=0.0, out_point=1.0, reason="test")

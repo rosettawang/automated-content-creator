@@ -63,6 +63,14 @@ async function loadCuts() {
     const name = document.createElement("div");
     name.className = "cut-name";
     name.textContent = e.name || `Edit ${e.id}`;
+    // Aspect badge: only when reframed away from the source frame (9:16 etc.).
+    if (e.aspect && e.aspect !== "source") {
+      const badge = document.createElement("span");
+      badge.className = "cut-aspect";
+      badge.textContent = e.aspect;
+      badge.title = `Output frame: ${e.aspect}`;
+      name.appendChild(badge);
+    }
 
     const meta = document.createElement("div");
     meta.className = "cut-meta";

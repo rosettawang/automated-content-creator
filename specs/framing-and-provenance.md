@@ -16,24 +16,25 @@ git history for the full original spec. What remains below is the unbuilt tail o
 `claude_client.py`; the export verification step in `_run_export_job` (`export.py`).
 **Parallel:** frontend-heavy; safe alongside backend specs that don't touch export/edits.
 
-## Stage 4 — editor overrides + chat framing context
+## Stage 4 — editor overrides + chat framing context ✅ Shipped 2026-07-13
 
 **Problem.** Framing is now decided and stored automatically, but the human can't see or
 correct it, and the edit-chat can't reason about it.
 
-- **Crop overlay on by default** (`crop.js`) when the edit's aspect ≠ source: draw the
-  stored `crop_*` (and, if set, the `kb_*` end rect) over the player. Dragging updates the
-  item's `crop_*`/`kb_*` via the existing crop/ken-burns endpoints.
-- **Mark human overrides as sticky.** Auto-framing (`_apply_auto_framing`) currently fills
-  only NULL-crop items and `reset=True` (aspect change) clears everything — which would wipe
-  a human drag. Add a way to distinguish a manual crop from an auto one (e.g. a
-  `timeline_items.crop_source TEXT` = 'auto' | 'manual', or a boolean) so reset/reframe
-  preserves manual crops and only recomputes auto ones. This is the missing piece that makes
-  overrides durable across an aspect change.
-- **Edit chat framing context.** Include each item's regions + current `crop_*`/`kb_*` in the
-  revision prompt so "keep the oil bowl centered" updates framing, not just clip choice. Have
-  `revise_edit` optionally return per-item crop adjustments, applied like `_apply_auto_framing`
-  but honoring the instruction.
+- ~~**Crop overlay on by default**~~ ✅ Done — `crop.js` `refreshCropOverlay()` shows the
+  overlay whenever the edit's aspect ≠ source, draws the stored `crop_*`/`kb_*`, and dragging
+  PUTs the new rect to the item.
+- ~~**Mark human overrides as sticky.**~~ ✅ Done (2026-07-13) — `timeline_items.crop_source`
+  (migration `003`) = 'auto' | 'manual' | NULL. A crop/kb write from the client tags the item
+  `manual`; `_apply_auto_framing` reset now preserves `manual` items and only recomputes autos
+  (tagging its own fills `auto`); Reset-to-auto (crop_x=null) clears the flag. Covered by
+  `tests/test_framing_overrides.py`.
+- ~~**Edit chat framing context.**~~ ✅ Done (2026-07-13) — `chat_edit` passes each item's
+  subject regions + current crop center + the output aspect into `revise_edit`, which returns
+  `crops` (per-item center points) when the instruction is about framing. `_apply_framing_edits`
+  turns each into an exact aspect-correct, sticky (`manual`) crop window, applied after
+  auto-framing. Verified against the real model ("keep the machine centered" → a crop centered
+  on the oil-press region) and in `tests/test_framing_overrides.py`.
 
 ## Stage 5 — export frame-check (self-correcting framing)
 

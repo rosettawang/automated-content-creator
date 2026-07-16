@@ -544,6 +544,18 @@ body {
 
 .cut-body { padding: 0.6rem 0.7rem; display: flex; flex-direction: column; gap: 0.4rem; }
 .cut-name { font-size: 0.9rem; font-weight: 600; color: #eee; word-break: break-word; }
+.cut-aspect {
+  display: inline-block;
+  margin-left: 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #cfe3cf;
+  background: #2b382b;
+  border: 1px solid #4a6a4a;
+  border-radius: 4px;
+  padding: 0.05rem 0.35rem;
+  vertical-align: middle;
+}
 .cut-meta { font-size: 0.78rem; color: #999; }
 
 .cut-assign {

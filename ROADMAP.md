@@ -24,16 +24,20 @@ The blueprint split fixed `app.py`; don't let its problem respawn elsewhere.
 
 ## Priority 3 — The two designed features (spec: `specs/framing-and-provenance.md`)
 
-7. **Provenance + re-download** (smaller, do first): `source_kind`/`source_url` on clips, written at import, backfilled coarsely; "⚠ not local" becomes a Re-download action. This is what lets the library grow past what fits on disk — the whole premise of metadata-as-index.
-8. **Framing v2** (bigger, biggest quality win): time-sampled regions with a primary-subject flag; fill `crop_*`/`kb_*` per timeline item at assemble time from regions inside the item's own in/out range; crop overlay on by default when aspect ≠ source; vision spot-check of exported frames. Quick win available immediately: center on the primary region instead of the union box.
+7. ~~**Provenance + re-download**~~ ✅ Shipped. `source_kind`/`source_url` on clips, written at import + backfilled to 'photos' at startup; `POST /api/clips/<id>/pull` re-downloads from the recorded source; "⚠ not local" is a Re-download action.
+8. **Framing v2** — core shipped, tail remains. ✅ Time-aware regions (`clip_regions.t_frame`/`is_primary`, migration `002`; deep-index emits per-segment boxes) + assemble-time subject-tracking reframe (`_apply_auto_framing` fills `crop_*`/`kb_*` per item from boxes in its own in/out range; primary-region centering). ✅ Stage 4 complete: crop overlay on by default, **durable human overrides** (`crop_source`, migration `003` — manual crops survive an aspect change), and **edit-chat framing context** ("keep the bowl centered" → sticky crop). ⏳ Remaining in `specs/framing-and-provenance.md`: only the export frame-check (Stage 5, recurring API cost — gated behind a setting/on-device).
 
 ## Priority 3.5 — Social publishing (spec: `specs/social-publishing.md`)
 
 Scheduled posts, analytics, and recommendations under Campaigns, via Composio. Explicitly designed as its own bounded domain (`blueprints/publishing.py` + `social/` adapters + `posts`/`post_metrics` tables) so it can't become the next monolith. Note the dependency: **the Priority 1 test suite gates real posting** — publishing failures are public and irreversible, so the spec keeps everything in dry-run mode until the safety net exists. Build phases A–E in the spec; ship each before starting the next.
 
+## Priority 3.6 — Audio design for generated edits (spec: `specs/audio-design.md`)
+
+Generation currently decides what you see, not what you hear — exports concatenate raw camera audio (level jumps at cuts, mid-word chops, silence over stills). The model gains an `audio_plan` per edit (ambient / speech-led / music / voiceover / clean), stored on the edit, user-overridable, chat-changeable — same pattern as aspect-from-prompt. Three phases: ambient treatment + sentence-boundary cuts (no new deps, biggest win) → music library + first-class clean mode (platform-licensed music is added in-app) → TTS voiceover with a visible, editable script.
+
 ## Priority 4 — Papercuts (opportunistic, none blocking)
 
-9. Aspect from prompt wording ("vertical" → 9:16 on the edit).
+9. ~~Aspect from prompt wording ("vertical" → 9:16 on the edit).~~ ✅ Done (`aspect-from-prompt`) — model infers the frame on generate; "make it square" in chat reframes; explicit choices aren't clobbered.
 10. ~~Auto-suggest campaign assignment for generated cuts.~~ ✅ Done (dismissible banner, `editor-ux-papercuts`).
 11. ~~Settings popover clips off the left window edge.~~ ✅ Done (flip/clamp on open).
 12. ~~Data hygiene: CORRECTION-notes out of descriptions; photos flagged as stills, not 0.3s "videos".~~ ✅ Done (`data-hygiene` spec; maintenance checks in `editor/scripts_hygiene.py`).
@@ -49,13 +53,14 @@ Every spec in `specs/` declares which files it owns; two sessions may run concur
 | ~~`test-suite`~~ (shipped) | everything | — | — |
 | ~~`schema-migrations`~~ (shipped) | — | — | — |
 | ~~`core-split`~~ (shipped) | — | — | — |
-| `aspect-from-prompt` | frontend, tests, data-hygiene | — | — |
+| ~~`aspect-from-prompt`~~ (shipped) | frontend, tests, data-hygiene | — | — |
 | `editor-ux-papercuts` | all backend specs | — | — |
 | `data-hygiene` | code specs (it edits data) | — | — |
 | `framing-and-provenance` | frontend, tests | its own other half | — (schema-migrations shipped) |
 | `social-publishing` | frontend, tests, data-hygiene | — | test-suite gates real posting |
+| `audio-design` | frontend, social-publishing | framing-and-provenance tail (both touch export.py) | sequenced after aspect-from-prompt (shipped) |
 
-`test-suite`, `schema-migrations`, and `core-split` are all shipped, so the feature specs (`aspect-from-prompt`, `framing-and-provenance`, `social-publishing`) are unblocked — they no longer collide with an in-flight import-touching refactor.
+`test-suite`, `schema-migrations`, `core-split`, and `aspect-from-prompt` are all shipped, so the remaining feature specs (`framing-and-provenance`, `social-publishing`) are unblocked — they no longer collide with an in-flight import-touching refactor.
 
 ## Process guardrails (cheap, start now)
 

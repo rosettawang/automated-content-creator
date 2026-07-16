@@ -167,9 +167,11 @@ def _apply_auto_framing(conn, edit_id: int, reset: bool = False) -> None:
     erow = conn.execute("SELECT aspect FROM edits WHERE id = ?", (edit_id,)).fetchone()
     aspect = (erow["aspect"] if erow else None) or "source"
     if reset:
+        # Recompute AUTO crops for the new aspect, but never wipe a human override.
         conn.execute(
             "UPDATE timeline_items SET crop_x=NULL, crop_y=NULL, crop_w=NULL, crop_h=NULL, "
-            "kb_x=NULL, kb_y=NULL, kb_w=NULL, kb_h=NULL WHERE edit_id = ?",
+            "kb_x=NULL, kb_y=NULL, kb_w=NULL, kb_h=NULL "
+            "WHERE edit_id = ? AND COALESCE(crop_source, 'auto') <> 'manual'",
             (edit_id,),
         )
     if aspect not in ASPECT_DIMS:   # 'source' or unknown -> no reframe
@@ -196,15 +198,52 @@ def _apply_auto_framing(conn, edit_id: int, reset: bool = False) -> None:
         if kb:
             conn.execute(
                 "UPDATE timeline_items SET crop_x=?, crop_y=?, crop_w=?, crop_h=?, "
-                "kb_x=?, kb_y=?, kb_w=?, kb_h=? WHERE id=?",
+                "kb_x=?, kb_y=?, kb_w=?, kb_h=?, crop_source='auto' WHERE id=?",
                 (*c, *kb, it["id"]),
             )
         else:
             conn.execute(
                 "UPDATE timeline_items SET crop_x=?, crop_y=?, crop_w=?, crop_h=?, "
-                "kb_x=NULL, kb_y=NULL, kb_w=NULL, kb_h=NULL WHERE id=?",
+                "kb_x=NULL, kb_y=NULL, kb_w=NULL, kb_h=NULL, crop_source='auto' WHERE id=?",
                 (*c, it["id"]),
             )
+    conn.commit()
+
+
+def _apply_framing_edits(conn, edit_id: int, crops) -> None:
+    """Apply chat-driven per-item framing (`crops` = objects with .index/.cx/.cy) after
+    a timeline replace. Each becomes an exact aspect-correct window centered on (cx,cy),
+    tagged `manual` so it's honored on export and preserved across an aspect change.
+    No-op when the edit's aspect is 'source' (nothing to crop) or crops is empty."""
+    if not crops:
+        return
+    erow = conn.execute("SELECT aspect FROM edits WHERE id = ?", (edit_id,)).fetchone()
+    aspect = (erow["aspect"] if erow else None) or "source"
+    if aspect not in ASPECT_DIMS:
+        return
+    ow, oh = ASPECT_DIMS[aspect]
+    target_ar = ow / oh
+    items = conn.execute(
+        """SELECT ti.id, c.file_stem FROM timeline_items ti
+           JOIN clips c ON c.id = ti.clip_id
+           WHERE ti.edit_id = ? ORDER BY ti.position""",
+        (edit_id,),
+    ).fetchall()
+    for ce in crops:
+        idx = getattr(ce, "index", None)
+        if idx is None or idx < 0 or idx >= len(items):
+            continue
+        it = items[idx]
+        p = find_media_file(it["file_stem"])
+        if not p:
+            continue
+        cw, ch = _window_dims(target_ar, _source_dims(p))
+        x, y, w, h = _clamp_rect(ce.cx - cw / 2, ce.cy - ch / 2, cw, ch)
+        conn.execute(
+            "UPDATE timeline_items SET crop_x=?, crop_y=?, crop_w=?, crop_h=?, "
+            "kb_x=NULL, kb_y=NULL, kb_w=NULL, kb_h=NULL, crop_source='manual' WHERE id=?",
+            (x, y, w, h, it["id"]),
+        )
     conn.commit()
 
 

@@ -201,16 +201,41 @@ def chat_edit(edit_id):
 
     current = conn.execute(
         """SELECT timeline_items.clip_id, timeline_items.in_point, timeline_items.out_point,
+                  timeline_items.crop_x, timeline_items.crop_y,
+                  timeline_items.crop_w, timeline_items.crop_h,
                   clips.file_stem, clips.description, clips.duration_s
            FROM timeline_items JOIN clips ON clips.id = timeline_items.clip_id
            WHERE edit_id = ? ORDER BY position""",
         (edit_id,),
     ).fetchall()
-    current_timeline = [dict(r) for r in current]
+    # Subject regions per clip, so the chat can honor "keep the bowl centered".
+    clip_ids = {r["clip_id"] for r in current}
+    regions_by_clip: dict = {}
+    if clip_ids:
+        ph = ",".join("?" * len(clip_ids))
+        for rr in conn.execute(
+            f"SELECT clip_id, label, x, y, w, h FROM clip_regions "
+            f"WHERE clip_id IN ({ph}) AND w > 0 AND h > 0", tuple(clip_ids)
+        ):
+            regions_by_clip.setdefault(rr["clip_id"], []).append(
+                {"label": rr["label"] or "subject", "x": rr["x"], "y": rr["y"],
+                 "w": rr["w"], "h": rr["h"]})
+    current_timeline = []
+    for r in current:
+        d = {"clip_id": r["clip_id"], "in_point": r["in_point"], "out_point": r["out_point"],
+             "file_stem": r["file_stem"], "description": r["description"],
+             "duration_s": r["duration_s"]}
+        if r["crop_x"] is not None and r["crop_w"] is not None:
+            d["crop"] = {"cx": r["crop_x"] + r["crop_w"] / 2,
+                         "cy": (r["crop_y"] or 0) + (r["crop_h"] or 0) / 2}
+        regs = regions_by_clip.get(r["clip_id"])
+        if regs:
+            d["regions"] = regs[:6]   # cap to keep the prompt tight
+        current_timeline.append(d)
     pool = _pool_for_generation(conn, [], edit["campaign_id"])
 
     try:
-        result = revise_edit(prompt, current_timeline, pool)
+        result = revise_edit(prompt, current_timeline, pool, aspect=(edit["aspect"] or "source"))
     except Exception as e:
         conn.close()
         return {"error": str(e)}, 502
@@ -226,6 +251,8 @@ def chat_edit(edit_id):
     if new_aspect and new_aspect != (edit["aspect"] or "source"):
         conn.execute("UPDATE edits SET aspect = ? WHERE id = ?", (new_aspect, edit_id))
     _apply_auto_framing(conn, edit_id)  # timeline was fully replaced; frame the fresh items
+    # Then apply any chat-driven framing on top (sticky manual crops), overriding auto.
+    _apply_framing_edits(conn, edit_id, getattr(result, "crops", None))
     conn.execute(
         "INSERT INTO edit_messages (edit_id, role, content) VALUES (?, 'user', ?)",
         (edit_id, prompt),
@@ -397,6 +424,15 @@ def update_item(edit_id, item_id):
         if key in data:
             fields.append(f"{key} = ?")
             values.append(data[key])  # crop_*/kb_* may be null to clear
+    # A crop/kb write from the client is a human framing decision. Tag it so an aspect
+    # change (which recomputes auto framing) won't wipe it. Clearing the crop (Reset to
+    # auto: crop_x=null) hands the item back to auto-framing.
+    touches_frame = any(k in data for k in ("crop_x", "crop_y", "crop_w", "crop_h",
+                                            "kb_x", "kb_y", "kb_w", "kb_h"))
+    if touches_frame:
+        clearing = "crop_x" in data and data["crop_x"] is None
+        fields.append("crop_source = ?")
+        values.append(None if clearing else "manual")
     if not fields:
         return {"ok": True}
     values.append(item_id)

@@ -149,6 +149,7 @@ from export import (
     ASPECT_DIMS, _kb_keys, _clamp_rect, _auto_crop_from_regions, _reframe_filter,
     EXPORT_FPS, _even, _social_bitrate_args, _slugify, _unique_output_path,
     _run_export_job, _frame_item_from_regions, _apply_auto_framing, _window_dims,
+    _apply_framing_edits,
 )
 
 

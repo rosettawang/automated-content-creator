@@ -47,10 +47,20 @@ class RoughCutPlan(BaseModel):
     aspect: AspectHint = None         # inferred output frame, or null when unstated
 
 
+class CropEdit(BaseModel):
+    index: int    # 0-based index into `selections` of the item to reframe
+    cx: float     # desired horizontal center, fraction of the source frame (0..1)
+    cy: float     # desired vertical center, fraction of the source frame (0..1)
+
+
 class EditChatResult(BaseModel):
     reply: str                        # short, conversational summary of what changed
     selections: List[ClipSelection]   # the COMPLETE new timeline, in play order
     aspect: AspectHint = None         # set only when the instruction asks to reframe (e.g. "make it square")
+    # Per-item framing changes: only for items the instruction asks to reframe
+    # ("keep the oil bowl centered"). Empty when framing isn't mentioned. The exact
+    # aspect-correct crop window is computed server-side from this center point.
+    crops: List[CropEdit] = []
 
 
 def _format_timeline(items: list[dict]) -> str:
@@ -58,20 +68,47 @@ def _format_timeline(items: list[dict]) -> str:
         return "(the timeline is currently empty)"
     lines = []
     for i, it in enumerate(items):
-        lines.append(
-            f"{i + 1}. clip_id={it['clip_id']} file={it.get('file_stem', '')} "
+        line = (
+            f"{i}. clip_id={it['clip_id']} file={it.get('file_stem', '')} "
             f"in={it.get('in_point', 0)} out={it.get('out_point', 0)} "
             f"dur={it.get('duration_s', '?')}s desc=\"{it.get('description', '') or ''}\""
         )
+        # Framing context so the model can honor "keep the bowl centered".
+        cr = it.get("crop")
+        if cr:
+            line += f" current_crop_center=({cr['cx']:.2f},{cr['cy']:.2f})"
+        regs = it.get("regions") or []
+        if regs:
+            rs = "; ".join(
+                f"{r['label']}@({r['x'] + r['w'] / 2:.2f},{r['y'] + r['h'] / 2:.2f})"
+                for r in regs
+            )
+            line += f" subjects=[{rs}]"
+        lines.append(line)
     return "\n".join(lines)
 
 
-def revise_edit(instruction: str, current_timeline: list[dict], clips: list[dict]) -> EditChatResult:
+def revise_edit(instruction: str, current_timeline: list[dict], clips: list[dict],
+                aspect: str | None = None) -> EditChatResult:
     """Revise an existing timeline per a natural-language instruction. Returns a short
     reply plus the COMPLETE new timeline (the model may reorder, trim, drop, or add
-    clips from the catalog). Preserves anything the instruction doesn't touch."""
+    clips from the catalog). Preserves anything the instruction doesn't touch. When the
+    instruction is about framing ("keep the bowl centered"), returns `crops` keyed by
+    the item's index in `selections`."""
     catalog = _format_clip_catalog(clips)
     current = _format_timeline(current_timeline)
+    framing_ctx = ""
+    if aspect and aspect != "source":
+        framing_ctx = (
+            f"\n\nThe output frame is {aspect}, so each clip is cropped from its source. "
+            "Timeline lines list each item's `subjects` (name@center, normalized 0..1) and "
+            "its `current_crop_center`. If — and only if — the instruction asks to reframe "
+            "or keep a subject in view (e.g. \"keep the oil bowl centered\", \"frame on her "
+            "hands\"), return `crops`: one entry per affected item with its `index` (the "
+            "0-based number shown in the timeline) and the `cx`,`cy` center to keep in "
+            "frame (usually a listed subject's center). Leave `crops` empty for any "
+            "instruction that isn't about framing."
+        )
     message = (
         "You are an assistant editing a video timeline built from a library of "
         "already-shot clips. Apply the user's instruction to the CURRENT timeline and "
@@ -86,8 +123,9 @@ def revise_edit(instruction: str, current_timeline: list[dict], clips: list[dict
         + _ASPECT_INSTRUCTION
         + " Here, set aspect ONLY when the instruction asks to reframe (e.g. \"make it "
         "square\", \"turn this vertical\"); otherwise null. When you do change it, say "
-        "so in your reply.\n\n"
-        f"CURRENT TIMELINE (in order):\n{current}\n\n"
+        "so in your reply."
+        + framing_ctx
+        + f"\n\nCURRENT TIMELINE (in order):\n{current}\n\n"
         f"CLIP CATALOG (available to pull from):\n{catalog}\n\n"
         f"USER INSTRUCTION: {instruction}"
     )

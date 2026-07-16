@@ -1069,7 +1069,8 @@ function showCampaignBanner(editId, campaign) {
   };
   bar.append(text, yes, no);
   document.body.appendChild(bar);
-  setTimeout(() => { if (bar.isConnected) close(); }, 15000);
+  // No auto-dismiss: it's an actionable Yes/No prompt, so it waits for the user
+  // (No is the dismiss). Only a later suggestion replaces it (handled at the top).
 }
 
 document.getElementById("transcribe-btn").addEventListener("click", async () => {

@@ -4,11 +4,14 @@
 **Parallel:** safe alongside ALL backend specs, including `core-split.md`. The one shared-file risk is other sessions touching `static/app.js`/`studio.js` — check `git status` first per CLAUDE.md.
 
 ## Items (from review rounds 1–2)
-1. **Settings popover clips off-screen** — `#settings-popover` is right-anchored to a control near the window's left edge in some layouts; it renders past the left edge. Flip anchoring (left: 0 when the trigger sits in the left half) or clamp with `max(0, …)`; verify in both the standalone editor and `/studio` shell.
-2. **Campaign auto-suggest on generate** — when a cut is generated with no campaign selected, suggest the best-matching campaign (simple: the campaign whose description/things best match the prompt — backend already exposes campaigns; a dumb keyword match is fine v1) as a dismissible banner on the new edit: "Assign to 'WHRF'? [Yes] [No]". No silent auto-assign.
-3. **Cuts tab polish** — sort newest-first, show aspect badge (9:16 etc.) and export status on each card; "Open folder" link on exported cuts.
-4. **Program monitor idle state** — before first play, show the first frame (poster via existing thumbnail endpoint) instead of a black box.
-5. **Non-local styling coherence** — timeline badge (red hatch), library dim, and source-list "not local" all exist; unify tooltip copy to mention the future Re-download action once provenance ships.
+1. ~~**Settings popover clips off-screen**~~ ✅ Done — the popover measures on open and flips to left-anchored if its left edge would go off-screen (`app.js` settings-gear `setOpen`). Gear now sits far-right so it opens leftward; clamp is defensive for narrow widths.
+2. ~~**Campaign auto-suggest on generate**~~ ✅ Done — generating with no campaign selected does a client-side keyword match of the prompt against campaign name/description and shows a dismissible "Assign to '…'? [Yes] [No]" banner (`suggestCampaignForEdit` in `app.js`). Never auto-assigns.
+3. **Cuts tab polish** — ✅ newest-first sort + aspect badge (9:16 etc.) done (`cuts.js`). ⏳ **Deferred:** export status + "Open folder" — both need backend support (no per-cut export record exists yet; "Open folder" only works in the desktop/pywebview app, not the browser). Split these into a follow-up paired with backend work; out of scope for a frontend-only spec.
+4. ~~**Program monitor idle state**~~ ✅ Done — `updateIdlePoster()` sets the program `<video>` poster to the first local clip's thumbnail on load, so idle reads as ready, not broken.
+5. ~~**Non-local styling coherence**~~ ✅ Done — provenance shipped; timeline badge + Re-download button + source-list tooltip now use unified copy naming the Re-download / import fix.
+
+## Remaining
+Only item 3's **export status + Open folder** (backend-dependent). Everything else shipped 2026-07-13.
 
 ## Acceptance
 Each item verified in Chrome at 1280px and narrow (~900px) widths; no console errors; screenshots attached to the shipping commit message or PR description.
