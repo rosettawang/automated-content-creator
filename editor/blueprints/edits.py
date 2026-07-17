@@ -98,10 +98,16 @@ def update_edit(edit_id):
             return err(f"invalid audio_mode (use {'/'.join(AUDIO_MODES)})", 400)
         fields.append("audio_mode = ?")
         values.append(mode)
-    for f in ("audio_rationale", "vo_script", "music_path"):
+    for f in ("audio_rationale", "vo_script", "music_path", "ref_audio_name"):
         if f in data:
             fields.append(f"{f} = ?")
             values.append(data.get(f))
+    if "ref_audio_start" in data:
+        try:
+            fields.append("ref_audio_start = ?")
+            values.append(max(0.0, float(data.get("ref_audio_start") or 0)))
+        except (TypeError, ValueError):
+            return err("ref_audio_start must be a number (seconds)", 400)
     if not fields:
         return err("nothing to update", 400)
     with db_conn() as conn:
@@ -390,6 +396,72 @@ def generate_edit_from_scratch():
     })
 
 
+_REF_AUDIO_EXTS = {".mp3", ".m4a", ".aac", ".wav", ".ogg", ".flac", ".mp4", ".mov"}
+
+
+@bp.post("/api/edits/<int:edit_id>/reference-audio")
+def set_reference_audio(edit_id):
+    """Attach a LOCAL trending-audio scratch track to an edit — used only to time cuts
+    and preview (spec: audio-design Phase 4). Never exported; the real sound is added
+    natively in the platform app at post time."""
+    with db_conn() as conn:
+        if not conn.execute("SELECT 1 FROM edits WHERE id = ?", (edit_id,)).fetchone():
+            return err("not found", 404)
+    f = request.files.get("file")
+    if not f or not (f.filename or "").strip():
+        return err("no audio file provided", 400)
+    ext = Path(f.filename).suffix.lower()
+    if ext not in _REF_AUDIO_EXTS:
+        return err(f"unsupported audio type '{ext}' (use mp3/m4a/wav/…)", 400)
+    REF_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    for old in REF_AUDIO_DIR.glob(f"{edit_id}.*"):   # one scratch file per edit
+        old.unlink(missing_ok=True)
+    dest = REF_AUDIO_DIR / f"{edit_id}{ext}"
+    f.save(str(dest))
+    name = (request.form.get("name") or Path(f.filename).stem).strip()
+    try:
+        start = max(0.0, float(request.form.get("start") or 0))
+    except ValueError:
+        start = 0.0
+    with db_conn() as conn:
+        conn.execute(
+            "UPDATE edits SET ref_audio_path = ?, ref_audio_name = ?, ref_audio_start = ?, "
+            "ref_audio_beats = NULL WHERE id = ?",
+            (str(dest), name, start, edit_id),
+        )
+        row = conn.execute(
+            "SELECT ref_audio_name, ref_audio_start FROM edits WHERE id = ?", (edit_id,)
+        ).fetchone()
+    return jsonify({**dict(row), "has_reference": True})
+
+
+@bp.delete("/api/edits/<int:edit_id>/reference-audio")
+def clear_reference_audio(edit_id):
+    with db_conn() as conn:
+        row = conn.execute("SELECT ref_audio_path FROM edits WHERE id = ?", (edit_id,)).fetchone()
+        if not row:
+            return err("not found", 404)
+        conn.execute(
+            "UPDATE edits SET ref_audio_path = NULL, ref_audio_name = NULL, "
+            "ref_audio_start = 0, ref_audio_beats = NULL WHERE id = ?",
+            (edit_id,),
+        )
+    if row["ref_audio_path"]:
+        Path(row["ref_audio_path"]).unlink(missing_ok=True)
+    return jsonify({"cleared": True})
+
+
+@bp.get("/api/edits/<int:edit_id>/reference-audio/media")
+def reference_audio_media(edit_id):
+    """Serve the scratch track for the program-monitor preview (local only)."""
+    with db_conn() as conn:
+        row = conn.execute("SELECT ref_audio_path FROM edits WHERE id = ?", (edit_id,)).fetchone()
+    path = row["ref_audio_path"] if row else None
+    if not path or not Path(path).exists():
+        return err("no reference audio", 404)
+    return send_file(path)
+
+
 @bp.post("/api/edits/<int:edit_id>/items")
 def add_item(edit_id):
     data = request.json
@@ -638,10 +710,11 @@ def export_campaign(edit_id):
     # them in a background job (same pattern as imports) and hand back a job_id the UI
     # polls — no request timeout, live progress.
     audio_mode = (campaign["audio_mode"] if "audio_mode" in campaign.keys() else None) or "ambient"
+    vo_script = campaign["vo_script"] if "vo_script" in campaign.keys() else None
     job_id = _new_job(f"Export · {campaign['name']}", "clip")
     threading.Thread(
         target=_run_export_job,
-        args=(job_id, campaign["name"], explicit_aspect, dims, plan, audio_mode),
+        args=(job_id, campaign["name"], explicit_aspect, dims, plan, audio_mode, vo_script),
         daemon=True,
     ).start()
     return jsonify({"job_id": job_id})

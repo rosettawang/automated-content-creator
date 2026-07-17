@@ -28,6 +28,8 @@ REFERENCE_FRAMES = REPO_ROOT / "reference_frames"
 THUMB_CACHE = Path(__file__).resolve().parent / "data" / "thumbs"
 FACES_DIR = Path(__file__).resolve().parent / "data" / "faces"
 PROXY_CACHE = Path(__file__).resolve().parent / "data" / "proxies"
+# Local trending-audio scratch tracks (Phase 4): reference-only, never exported.
+REF_AUDIO_DIR = Path(__file__).resolve().parent / "data" / "ref_audio"
 
 
 def classify_kind(path: Path) -> str:
@@ -39,5 +41,5 @@ __all__ = [
     "MEDIA_DIR_RAW", "MEDIA_DIR", "ON_DEVICE_VISION_DEFAULT",
     "VIDEO_EXTS", "IMAGE_EXTS", "MEDIA_EXTS", "classify_kind",
     "REPO_ROOT", "CLIPS_OUT", "REFERENCE_FRAMES", "THUMB_CACHE",
-    "FACES_DIR", "PROXY_CACHE",
+    "FACES_DIR", "PROXY_CACHE", "REF_AUDIO_DIR",
 ]

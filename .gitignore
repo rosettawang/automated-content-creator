@@ -29,6 +29,7 @@ editor/.env
 editor/data/thumbs/
 editor/data/faces/
 editor/data/proxies/
+editor/data/ref_audio/
 # Python build artifact
 editor/content_creator.egg-info/
 # Per-user local Claude Code settings (permissions etc.); keep launch.json shared

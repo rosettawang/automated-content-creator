@@ -95,3 +95,56 @@ def test_still_gets_silent_track_no_loudnorm():
     a = _segment_audio_args("ambient", has_audio=False)
     assert a["null_input"] is True
     assert a["maps"] == ["-map", "1:a:0"] and a["filt"] == []
+
+
+# ---- trending-audio compose: reference track (Phase 4) ----
+import io
+
+
+def _new_edit(client):
+    return client.post("/api/edits", json={"name": "E"}).get_json()["id"]
+
+
+def test_reference_audio_upload_get_clear(client):
+    eid = _new_edit(client)
+    # upload a scratch track
+    r = client.post(f"/api/edits/{eid}/reference-audio",
+                    data={"file": (io.BytesIO(b"ID3fake-mp3-bytes"), "trend.mp3"),
+                          "name": "Trending Sound", "start": "3.5"},
+                    content_type="multipart/form-data")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["has_reference"] and body["ref_audio_name"] == "Trending Sound"
+    assert body["ref_audio_start"] == 3.5
+
+    edit = client.get(f"/api/edits/{eid}").get_json()
+    assert edit["ref_audio_name"] == "Trending Sound" and edit["ref_audio_start"] == 3.5
+    # the scratch file serves for preview
+    assert client.get(f"/api/edits/{eid}/reference-audio/media").status_code == 200
+
+    # adjusting the offset (no re-upload)
+    client.put(f"/api/edits/{eid}", json={"ref_audio_start": 5})
+    assert client.get(f"/api/edits/{eid}").get_json()["ref_audio_start"] == 5.0
+
+    # clear
+    assert client.delete(f"/api/edits/{eid}/reference-audio").status_code == 200
+    assert client.get(f"/api/edits/{eid}").get_json()["ref_audio_path"] is None
+    assert client.get(f"/api/edits/{eid}/reference-audio/media").status_code == 404
+
+
+def test_reference_audio_rejects_bad_type(client):
+    eid = _new_edit(client)
+    r = client.post(f"/api/edits/{eid}/reference-audio",
+                    data={"file": (io.BytesIO(b"x"), "notes.txt")},
+                    content_type="multipart/form-data")
+    assert r.status_code == 400
+
+
+def test_reference_does_not_change_export_audio_mode(client):
+    # a reference track is compose-only; it must not flip the exported audio treatment
+    eid = _new_edit(client)
+    client.put(f"/api/edits/{eid}", json={"audio_mode": "clean"})
+    client.post(f"/api/edits/{eid}/reference-audio",
+                data={"file": (io.BytesIO(b"ID3x"), "t.mp3")},
+                content_type="multipart/form-data")
+    assert client.get(f"/api/edits/{eid}").get_json()["audio_mode"] == "clean"
