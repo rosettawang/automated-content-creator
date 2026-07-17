@@ -31,6 +31,8 @@ The blueprint split fixed `app.py`; don't let its problem respawn elsewhere.
 
 Scheduled posts, analytics, and recommendations under Campaigns, via Composio. Explicitly designed as its own bounded domain (`blueprints/publishing.py` + `social/` adapters + `posts`/`post_metrics` tables) so it can't become the next monolith. Note the dependency: **the Priority 1 test suite gates real posting** — publishing failures are public and irreversible, so the spec keeps everything in dry-run mode until the safety net exists. Build phases A–E in the spec; ship each before starting the next.
 
+**Status (2026-07-17):** ~~social-core (A–B)~~ and ~~social-analytics (D–E)~~ **shipped** — DB-driven scheduler, dry-run harness, campaign hub (KPIs, calendar/list, post-detail, Learn card), metrics ingestion + recommendations. Remaining: **social-adapters (C)** — Instagram adapter is built and dry-run gated but **not yet live-verified** on a real account; that verification (and turning `SOCIAL_DRY_RUN` off per campaign) is the only step left before real posting.
+
 ## Priority 3.6 — Audio design for generated edits (spec: `specs/audio-design.md`)
 
 Generation currently decides what you see, not what you hear — exports concatenate raw camera audio (level jumps at cuts, mid-word chops, silence over stills). The model gains an `audio_plan` per edit (ambient / speech-led / music / voiceover / clean), stored on the edit, user-overridable, chat-changeable — same pattern as aspect-from-prompt. Three phases: ambient treatment + sentence-boundary cuts (no new deps, biggest win) → music library + first-class clean mode (platform-licensed music is added in-app) → TTS voiceover with a visible, editable script.
