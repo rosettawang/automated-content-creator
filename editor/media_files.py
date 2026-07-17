@@ -187,9 +187,40 @@ def _measure_quality(path: Path) -> tuple[int | None, int | None, float | None, 
     return w, h, sharpness, quality
 
 
+_stem_index_lock = threading.Lock()
+_stem_index_cache: dict = {"mtime": None, "map": {}}
+
+
+def _stem_index() -> dict:
+    """A `{file_stem: Path}` map of MEDIA_DIR's top-level media files, rebuilt only
+    when the directory's mtime changes (a file added/removed bumps it). Turns the
+    23 per-clip find_media_file() calls in a request from a glob each into O(1) dict
+    lookups after one listing — the 'one directory listing per request' fix."""
+    if MEDIA_DIR is None or not MEDIA_DIR.is_dir():
+        return {}
+    try:
+        mtime = MEDIA_DIR.stat().st_mtime
+    except OSError:
+        return {}
+    with _stem_index_lock:
+        if _stem_index_cache["mtime"] != mtime:
+            m: dict = {}
+            for p in MEDIA_DIR.iterdir():
+                if p.is_file() and p.suffix.lower() in MEDIA_EXTS:
+                    m.setdefault(p.stem, p)
+            _stem_index_cache["mtime"] = mtime
+            _stem_index_cache["map"] = m
+        return _stem_index_cache["map"]
+
+
 def find_media_file(file_stem: str) -> Path | None:
     if MEDIA_DIR is None or not MEDIA_DIR.is_dir():
         return None
+    hit = _stem_index().get(file_stem)
+    if hit is not None and hit.exists():
+        return hit
+    # Miss (or a stale cache entry): fall back to a direct glob. Covers a file added
+    # since the last mtime observation and any layout iterdir didn't capture.
     matches = list(MEDIA_DIR.glob(f"{file_stem}.*"))
     return matches[0] if matches else None
 

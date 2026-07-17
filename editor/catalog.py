@@ -132,15 +132,25 @@ def _usable_for_generation(row) -> bool:
 def _attach_moments(conn, clips: list[dict]) -> None:
     """Attach each clip's deep-index timeline (scene/action/speech events from
     clip_events) so the model can set in/out points on the best moment instead of
-    defaulting to the front of the clip. Clips without events get an empty list."""
+    defaulting to the front of the clip. Clips without events get an empty list.
+
+    One `IN (...)` query for the whole pool (grouped in Python), not one query per
+    clip — the pool is every eligible clip in the library, so this was a real N+1."""
+    ids = [c["id"] for c in clips]
+    moments: dict[int, list] = {}
+    if ids:
+        ph = ",".join("?" * len(ids))
+        for r in conn.execute(
+            f"""SELECT clip_id, kind, label, text, t_start, t_end FROM clip_events
+                WHERE clip_id IN ({ph}) AND kind IN ('scene', 'action', 'speech')
+                ORDER BY clip_id, t_start""",
+            ids,
+        ):
+            moments.setdefault(r["clip_id"], []).append(
+                {"kind": r["kind"], "label": r["label"], "text": r["text"],
+                 "t_start": r["t_start"], "t_end": r["t_end"]})
     for c in clips:
-        rows = conn.execute(
-            """SELECT kind, label, text, t_start, t_end FROM clip_events
-               WHERE clip_id = ? AND kind IN ('scene', 'action', 'speech')
-               ORDER BY t_start""",
-            (c["id"],),
-        ).fetchall()
-        c["moments"] = [dict(r) for r in rows]
+        c["moments"] = moments.get(c["id"], [])
 
 
 def _prompt_with_campaign_context(conn, campaign_id, prompt: str) -> str:
