@@ -205,14 +205,6 @@ body {
 }
 
 /* ============================ Campaign drawer ============================ */
-#drawer-scrim {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  z-index: 90;
-}
-#drawer-scrim.hidden { display: none; }
-
 #campaign-drawer {
   position: fixed;
   top: 0;

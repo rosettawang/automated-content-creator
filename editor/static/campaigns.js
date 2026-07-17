@@ -177,7 +177,6 @@ saveBtn.addEventListener("click", async () => {
 let drawerCampaign = null;
 
 const drawer = document.getElementById("campaign-drawer");
-const scrim = document.getElementById("drawer-scrim");
 
 function openDrawer(campaign) {
   drawerCampaign = campaign;
@@ -188,7 +187,6 @@ function openDrawer(campaign) {
   document.getElementById("cmp-arm-check").checked = !!campaign.publishing_armed;
   document.getElementById("cmp-arm-hint").textContent = "";
   drawer.classList.remove("hidden");
-  scrim.classList.remove("hidden");
   loadThings();
   loadChat();
   loadPosts();
@@ -235,12 +233,10 @@ document.getElementById("cmp-context-save").addEventListener("click", async () =
 
 function closeDrawer() {
   drawer.classList.add("hidden");
-  scrim.classList.add("hidden");
   drawerCampaign = null;
 }
 
 document.getElementById("drawer-close").addEventListener("click", closeDrawer);
-scrim.addEventListener("click", closeDrawer);
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !drawer.classList.contains("hidden")) closeDrawer();
 });
