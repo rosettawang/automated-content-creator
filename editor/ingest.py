@@ -8,6 +8,7 @@ never imports core. Re-exported by core for `from core import *`.
 """
 from __future__ import annotations
 
+import logging
 import threading
 import zipfile
 from datetime import datetime, timezone
@@ -25,6 +26,8 @@ from photos_import import (
     download_one as photos_download_one,
     make_session as photos_make_session,
 )
+
+log = logging.getLogger("editor.ingest")
 
 
 def _run_drive_job(job_id: str, urls: list[str]) -> None:
@@ -150,8 +153,8 @@ def register_clip_file(conn, path: Path, source_kind: str | None = None,
         try:
             if existing_path is None or existing_path.resolve() != path.resolve():
                 path.unlink(missing_ok=True)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.warning("%s: %s", "register_clip_file", _e)
         return {"status": "duplicate", "file_stem": file_stem,
                 "filename": path.name, "duplicate_of": dup["file_stem"]}
 

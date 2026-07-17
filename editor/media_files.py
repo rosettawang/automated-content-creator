@@ -20,6 +20,9 @@ from config import (
 )
 from db import get_conn
 from jobs_runtime import _update_job
+import logging
+
+log = logging.getLogger("editor.media")
 
 _proxy_jobs: set[str] = set()
 
@@ -46,7 +49,7 @@ def _generate_proxy(path: Path) -> Path | None:
         if out.exists() and out.stat().st_mtime >= path.stat().st_mtime:
             return out
     except OSError:
-        pass
+        pass  # can't stat cache/source -> treat as stale and (re)generate below
     PROXY_CACHE.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -90,7 +93,7 @@ def _ensure_proxy_async(path: Path) -> None:
         if proxy.exists() and proxy.stat().st_mtime >= path.stat().st_mtime:
             return
     except OSError:
-        pass
+        pass  # can't stat cache/source -> treat as stale and (re)generate below
     with _proxy_lock:
         if stem in _proxy_jobs:
             return
@@ -168,8 +171,8 @@ def _measure_quality(path: Path) -> tuple[int | None, int | None, float | None, 
                 gray = np.asarray(Image.open(fp).convert("L"))
                 if gray.size:
                     sharpness = round(_laplacian_variance(gray), 1)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.warning("%s: %s", "_measure_quality", _e)
 
     quality = None
     if w and h:

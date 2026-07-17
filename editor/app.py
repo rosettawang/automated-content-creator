@@ -1,5 +1,6 @@
 """Editor backend entrypoint: app factory + blueprint registration + waitress serve.
 Routes live in blueprints/*.py; shared state and helpers live in core.py."""
+import logging
 import os
 
 from flask import Flask
@@ -38,6 +39,10 @@ def serve(port: int | None = None) -> None:
     background jobs; no exposed Werkzeug debugger). Set FLASK_DEBUG=1 for the rare
     devtools session (reloader + debugger, dev only)."""
     port = port or int(os.environ.get("PORT", "5001"))
+    # Surface the module loggers (indexing/media/jobs/etc.) so per-item job failures
+    # that were previously swallowed are visible instead of silent.
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     init_db()
     reconcile_orphaned_jobs()
     _backfill_clip_sources()  # data backfill; needs the migrated schema to exist first

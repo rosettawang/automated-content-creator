@@ -1,5 +1,8 @@
 from flask import Blueprint
 from core import *
+import logging
+
+log = logging.getLogger("editor.blueprints.media")
 
 bp = Blueprint("media", __name__)
 
@@ -147,8 +150,8 @@ def import_local_paths():
                 if delete_originals:
                     try:
                         src.unlink()
-                    except Exception:
-                        pass  # extraction already succeeded; a leftover zip is harmless
+                    except Exception as _e:
+                        log.warning("%s: %s", "import_local_paths", _e)
                 continue
 
             if suffix not in MEDIA_EXTS:
@@ -170,8 +173,8 @@ def import_local_paths():
             if delete_originals and res.get("status") != "error":
                 try:
                     src.unlink()
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.warning("%s: %s", "import_local_paths", _e)
             res["moved"] = delete_originals
             results.append(res)
     return jsonify({"results": results})

@@ -9,6 +9,7 @@ the graph. `core` re-exports everything here for `from core import *`.
 from __future__ import annotations
 
 import hashlib
+import logging
 import json
 import queue
 import re
@@ -31,6 +32,9 @@ from claude_client import (
     analyze_frame, deep_index_clip, pick_best_frame, classify_thing_kind,
 )
 from drive_import import probe_duration
+
+
+log = logging.getLogger("editor.indexing")
 
 
 _indexing: set[int] = set()
@@ -350,8 +354,8 @@ def _run_thing_scan_job(job_id: str, thing_ids: list[int]) -> None:
                     if _link(cid, name):
                         via_pixels += 1
                 conn.commit()
-            except Exception:
-                pass
+            except Exception as _e:
+                log.warning("%s: %s", "_run_thing_scan_job", _e)
             _update_job(job_id, done=i + 1, current=path.name)
     # NOTE: no cloud/API fallback here by design — scanning only re-reads the stored
     # index (plus free on-device CLIP above). New things also join the watchlist, so
@@ -369,8 +373,8 @@ def _run_thing_scan_job(job_id: str, thing_ids: list[int]) -> None:
                 # use_api=False: scan must stay free — first candidate is fine; the
                 # ★ button offers the Claude-picked "most flattering" cover on demand.
                 _pick_thing_thumbnail(conn, t["id"], use_api=False)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.warning("%s: %s", "_run_thing_scan_job", _e)
 
     conn.close()
     _update_job(job_id, finished=True, current=None, phase="done",
@@ -405,8 +409,8 @@ def _run_region_scan_job(job_id: str, only_missing: bool) -> None:
             _record_regions(conn, cid, regions)
             conn.commit()
             located += len(regions)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.warning("%s: %s", "_run_region_scan_job", _e)
         _update_job(job_id, done=i + 1, current=path.name)
 
     conn.close()
@@ -478,8 +482,8 @@ def _run_face_detect_job(job_id: str) -> None:
                              (str(thumb), person_id, fid))
                 face_count += 1
             conn.commit()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.warning("%s: %s", "_run_face_detect_job", _e)
         _update_job(job_id, done=i + 1, current=path.name)
 
     _recluster_unnamed(conn)
@@ -536,8 +540,8 @@ def _run_motion_job(job_id: str, labels: list[str]) -> None:
                         (cid, tid),
                     )
             conn.commit()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.warning("%s: %s", "_run_motion_job", _e)
         _update_job(job_id, done=i + 1, current=path.name)
 
     conn.close()
@@ -617,8 +621,8 @@ def _index_clip_background(clip_id: int, path: Path) -> None:
             model = get_whisper_model()
             whisper_result = model.transcribe(str(path))
             transcript = whisper_result["text"].strip()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.warning("%s: %s", "_index_clip_background", _e)
 
         # --- Vision analysis ---
         duration_row = get_conn().execute(
@@ -661,8 +665,8 @@ def _index_clip_background(clip_id: int, path: Path) -> None:
                 tags_str = ", ".join(analysis.tags)
                 matched_things = analysis.matched_things
                 regions = getattr(analysis, "regions", []) or []
-        except Exception:
-            pass
+        except Exception as _e:
+            log.warning("%s: %s", "_index_clip_background", _e)
 
         # --- GPS location ---
         lat, lon, location = _extract_gps(path)
@@ -769,8 +773,8 @@ def _embed_worker() -> None:
             row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
             if row and _embed_clip(conn, row):
                 conn.commit()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.warning("%s: %s", "_embed_worker", _e)
         finally:
             _embed_queue.task_done()
 
@@ -799,8 +803,8 @@ def _run_embed_job(job_id: str) -> None:
             if _embed_clip(conn, row):
                 built += 1
                 conn.commit()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.warning("%s: %s", "_run_embed_job", _e)
         _update_job(job_id, done=i + 1, current=row["file_stem"])
     conn.close()
     _update_job(job_id, finished=True, current=None, phase="done",
@@ -915,8 +919,8 @@ def _run_deep_index_batch_job(job_id: str, clip_ids: list[int]) -> None:
                 f"clip-{cid}", _sample_frames(path, duration), duration,
                 _transcript_segs(conn, cid), watchlist,
             ))
-        except Exception:
-            pass
+        except Exception as _e:
+            log.warning("%s: %s", "_run_deep_index_batch_job", _e)
         _update_job(job_id, done=i + 1, current=path.name)
 
     batch = get_client().messages.batches.create(requests=requests_list)
@@ -941,8 +945,8 @@ def _run_deep_index_batch_job(job_id: str, clip_ids: list[int]) -> None:
             idx = parse_deep_index_json(text)
             segs += _store_deep_index(conn, cid, idx)
             stored += 1
-        except Exception:
-            pass
+        except Exception as _e:
+            log.warning("%s: %s", "_run_deep_index_batch_job", _e)
     conn.close()
     _update_job(job_id, finished=True, current=None, phase="done",
                 results=[{"status": "indexed", "clips": stored, "segments": segs,
@@ -978,8 +982,8 @@ def _run_deep_index_job(job_id: str, clip_ids: list[int]) -> None:
     for i, (cid, path, _dur) in enumerate(todo):
         try:
             done_segments += _deep_index_one(conn, cid, path)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.warning("%s: %s", "_run_deep_index_job", _e)
         _update_job(job_id, done=i + 1, current=path.name)
     conn.close()
     _update_job(job_id, finished=True, current=None, phase="done",

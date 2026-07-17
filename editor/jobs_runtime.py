@@ -19,6 +19,9 @@ import uuid
 from datetime import datetime, timezone
 
 from db import get_conn
+import logging
+
+log = logging.getLogger("editor.jobs")
 
 __all__ = [
     "_jobs", "_jobs_lock", "_JOB_FLUSH_INTERVAL", "_JOB_FLUSH_KEYS",
@@ -58,8 +61,8 @@ def _job_flush(job: dict) -> None:
         conn.commit()
         conn.close()
         job["_last_flush"] = time.monotonic()
-    except Exception:
-        pass  # never let a progress-write failure break the running job
+    except Exception as _e:
+        log.warning("%s: %s", "_job_flush", _e)
 
 
 def _new_job(label: str, unit: str) -> str:
@@ -89,8 +92,8 @@ def _new_job(label: str, unit: str) -> str:
         )
         conn.commit()
         conn.close()
-    except Exception:
-        pass
+    except Exception as _e:
+        log.warning("%s: %s", "_new_job", _e)
     return job_id
 
 
@@ -164,8 +167,8 @@ def reconcile_orphaned_jobs() -> None:
         )
         conn.commit()
         conn.close()
-    except Exception:
-        pass
+    except Exception as _e:
+        log.warning("%s: %s", "reconcile_orphaned_jobs", _e)
 
 
 class JobCancelled(Exception):

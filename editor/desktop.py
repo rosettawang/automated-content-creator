@@ -58,6 +58,9 @@ def run_flask():
 
 
 def main():
+    import logging
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     init_db()
     reconcile_orphaned_jobs()
     _backfill_clip_sources()  # data backfill; needs the migrated schema to exist first

@@ -1,5 +1,8 @@
 from flask import Blueprint
 from core import *
+import logging
+
+log = logging.getLogger("editor.blueprints.campaigns")
 
 bp = Blueprint("campaigns", __name__)
 
@@ -40,8 +43,8 @@ def create_campaign():
                             (campaign_id, thing_id),
                         )
                         inferred.append(t.name)
-            except Exception:
-                pass  # inference is best-effort; a campaign still gets created without it
+            except Exception as _e:
+                log.warning("%s: %s", "create_campaign", _e)
 
     return jsonify({"id": campaign_id, "name": name, "description": description,
                     "inferred_things": inferred})
