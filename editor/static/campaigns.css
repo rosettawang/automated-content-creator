@@ -526,3 +526,11 @@ html.embedded #campaigns-header h1 { display: none; }
   font-size: 0.8rem; padding: 0.4rem 0.7rem; border-radius: 6px;
   border: 1px solid #4a6a4a; background: #3a5c3a; color: #fff; cursor: pointer;
 }
+
+/* ---- arm switch ---- */
+#cmp-arm-row {
+  display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: #ccc;
+  padding: 0.4rem 0 0.7rem; border-bottom: 1px solid #383838; margin-bottom: 0.3rem; cursor: pointer;
+}
+#cmp-arm-row input { cursor: pointer; }
+#cmp-arm-hint { color: #d8a05a; }

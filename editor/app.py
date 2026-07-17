@@ -64,6 +64,8 @@ def serve(port: int | None = None) -> None:
     _backfill_clip_sources()  # data backfill; needs the migrated schema to exist first
     # Publishing: never auto-retry an interrupted publish, then start the poll loop.
     from social.scheduler import reconcile_orphaned_posts, start_scheduler
+    from social.base import load_adapters
+    load_adapters()            # register platform adapters (guarded; dry-run unaffected)
     reconcile_orphaned_posts()
     start_scheduler()
     if os.environ.get("FLASK_DEBUG") == "1":

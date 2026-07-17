@@ -119,11 +119,15 @@ def test_arm_gate_blocks_live_publish(client, campaign, conn, monkeypatch):
     assert row["status"] == "failed"
     assert "armed" in (row["error"] or "").lower()
 
-    # arm it → now the block is "no real adapter" (still no live post fires)
+
+def test_no_adapter_blocks_live_publish(client, campaign, conn, monkeypatch):
+    # dry-run OFF + armed, but a platform with no registered adapter must fail loudly
+    monkeypatch.setenv("SOCIAL_DRY_RUN", "0")
     conn.execute("UPDATE campaigns SET publishing_armed = 1 WHERE id = ?", (campaign,))
     conn.commit()
-    conn.execute("UPDATE posts SET status = 'claimed', external_id = NULL, error = NULL WHERE id = ?", (pid,))
-    conn.commit()
+    pid = client.post(f"/api/campaigns/{campaign}/posts", json={
+        "platform": "tiktok", "scheduled_at": "2000-01-01T00:00:00+00:00"}).get_json()["id"]
+    scheduler.claim_due_posts(conn)
     scheduler.publish_post(pid)
     row = _status(conn, pid)
     assert row["status"] == "failed"

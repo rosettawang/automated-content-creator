@@ -185,12 +185,33 @@ function openDrawer(campaign) {
   document.getElementById("drawer-desc").textContent = campaign.description || "";
   document.getElementById("cmp-context-doc").value = campaign.context_doc || "";
   document.getElementById("cmp-context-status").textContent = "";
+  document.getElementById("cmp-arm-check").checked = !!campaign.publishing_armed;
+  document.getElementById("cmp-arm-hint").textContent = "";
   drawer.classList.remove("hidden");
   scrim.classList.remove("hidden");
   loadThings();
   loadChat();
   loadPosts();
 }
+
+document.getElementById("cmp-arm-check").addEventListener("change", async (e) => {
+  if (!drawerCampaign) return;
+  const armed = e.target.checked;
+  const hint = document.getElementById("cmp-arm-hint");
+  try {
+    const res = await api(`/api/campaigns/${drawerCampaign.id}/arm`, {
+      method: "POST", body: JSON.stringify({ armed }),
+    });
+    drawerCampaign.publishing_armed = res.publishing_armed ? 1 : 0;
+    cmpDryRun = res.dry_run;
+    hint.textContent = !armed ? ""
+      : (res.dry_run ? "Armed — but dry-run is on, so nothing goes live yet."
+                     : "⚠ LIVE — posts to the connected account.");
+  } catch (err) {
+    e.target.checked = !armed;  // revert on failure
+    hint.textContent = `Error: ${err.message}`;
+  }
+});
 
 // The chat keeps the context doc current; the user can also edit it directly.
 function setContextDoc(text) {
