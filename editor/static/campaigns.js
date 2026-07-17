@@ -189,6 +189,7 @@ function openDrawer(campaign) {
   scrim.classList.remove("hidden");
   loadThings();
   loadChat();
+  loadPosts();
 }
 
 // The chat keeps the context doc current; the user can also edit it directly.
@@ -391,6 +392,94 @@ document.getElementById("cmp-chat-form").addEventListener("submit", async (e) =>
     input.disabled = false;
     input.focus();
     document.getElementById("chat-log").scrollTop = 1e9;
+  }
+});
+
+// ============================ Posts (publishing) ============================
+const POST_PLATFORMS = ["instagram", "tiktok", "youtube", "facebook"];
+
+function initPostPlatforms() {
+  const sel = document.getElementById("cmp-post-platform");
+  if (!sel || sel.options.length) return;
+  POST_PLATFORMS.forEach((p) => {
+    const o = document.createElement("option");
+    o.value = p;
+    o.textContent = p[0].toUpperCase() + p.slice(1);
+    sel.appendChild(o);
+  });
+}
+
+async function loadPosts() {
+  initPostPlatforms();
+  if (!drawerCampaign) return;
+  const list = document.getElementById("cmp-posts-list");
+  list.innerHTML = "<li class='muted'>Loading…</li>";
+  const posts = await api(`/api/campaigns/${drawerCampaign.id}/posts`);
+  renderPosts(posts);
+}
+
+const POST_STATUS = {
+  draft: "Draft", scheduled: "Scheduled", claimed: "Publishing…",
+  publishing: "Publishing…", published: "Published", failed: "Failed",
+  cancelled: "Cancelled", needs_review: "Needs review",
+};
+
+function renderPosts(posts) {
+  const list = document.getElementById("cmp-posts-list");
+  list.innerHTML = "";
+  if (!posts.length) {
+    list.innerHTML = "<li class='muted'>No posts yet.</li>";
+    return;
+  }
+  posts.forEach((p) => {
+    const li = document.createElement("li");
+    li.className = `post-item post-${p.status}`;
+    const cap = (p.caption || "").trim() || "(no caption)";
+    const when = p.published_at || p.scheduled_at || "";
+    li.innerHTML =
+      `<span class="post-platform">${escapeText(p.platform)}</span>` +
+      `<span class="post-status">${POST_STATUS[p.status] || p.status}</span>` +
+      `<span class="post-caption">${escapeText(cap)}</span>` +
+      (when ? `<span class="post-when">${escapeText(when)}</span>` : "") +
+      (p.error ? `<span class="post-error">${escapeText(p.error)}</span>` : "");
+    if (["draft", "scheduled", "failed", "needs_review"].includes(p.status)) {
+      const cancel = document.createElement("button");
+      cancel.className = "post-cancel";
+      cancel.textContent = "×";
+      cancel.title = "Cancel this post";
+      cancel.onclick = async () => {
+        await api(`/api/posts/${p.id}/cancel`, { method: "POST" });
+        loadPosts();
+      };
+      li.appendChild(cancel);
+    }
+    list.appendChild(li);
+  });
+}
+
+document.getElementById("cmp-post-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!drawerCampaign) return;
+  const platform = document.getElementById("cmp-post-platform").value;
+  const caption = document.getElementById("cmp-post-caption").value.trim();
+  const hashtags = document.getElementById("cmp-post-hashtags").value.trim();
+  const status = document.getElementById("cmp-post-status");
+  const btn = document.getElementById("cmp-post-now");
+  btn.disabled = true;
+  status.textContent = "Posting…";
+  try {
+    const res = await api(`/api/campaigns/${drawerCampaign.id}/posts`, {
+      method: "POST",
+      body: JSON.stringify({ platform, caption, hashtags, publish_now: true }),
+    });
+    status.textContent = res.dry_run ? "Queued (dry run — nothing sent)" : "Queued";
+    document.getElementById("cmp-post-caption").value = "";
+    document.getElementById("cmp-post-hashtags").value = "";
+    setTimeout(loadPosts, 400);  // let the publish job land, then refresh
+  } catch (err) {
+    status.textContent = `Error: ${err.message}`;
+  } finally {
+    btn.disabled = false;
   }
 });
 

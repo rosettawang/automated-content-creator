@@ -17,6 +17,7 @@ from blueprints.media import bp as media_bp
 from blueprints.ai import bp as ai_bp
 from blueprints.campaigns import bp as campaigns_bp
 from blueprints.edits import bp as edits_bp
+from blueprints.publishing import bp as publishing_bp
 
 
 def create_app():
@@ -30,6 +31,7 @@ def create_app():
     app.register_blueprint(ai_bp)
     app.register_blueprint(campaigns_bp)
     app.register_blueprint(edits_bp)
+    app.register_blueprint(publishing_bp)
 
     @app.errorhandler(Exception)
     def _json_error(e):
@@ -60,6 +62,10 @@ def serve(port: int | None = None) -> None:
     init_db()
     reconcile_orphaned_jobs()
     _backfill_clip_sources()  # data backfill; needs the migrated schema to exist first
+    # Publishing: never auto-retry an interrupted publish, then start the poll loop.
+    from social.scheduler import reconcile_orphaned_posts, start_scheduler
+    reconcile_orphaned_posts()
+    start_scheduler()
     if os.environ.get("FLASK_DEBUG") == "1":
         app.run(debug=True, port=port)
     else:
