@@ -108,6 +108,12 @@ def _no_cache_static(resp):
     return resp
 
 
+def err(message, code: int = 400):
+    """Shared JSON error return: `return err("not found", 404)`. Centralizes the
+    `({"error": ...}, code)` shape every blueprint hand-rolls."""
+    return {"error": message}, code
+
+
 # Media file ops (probe/proxy/quality/location/frame-sampling) live in media_files
 # (leaf: config + db + jobs_runtime only). Re-exported so `from core import *` in
 # the blueprints keeps seeing these names unchanged.

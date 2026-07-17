@@ -40,7 +40,7 @@ def studio():
 def panel_bundle(panel):
     files = PANEL_BUNDLES.get(panel)
     if not files:
-        return {"error": "unknown bundle"}, 404
+        return err("unknown bundle", 404)
     parts = []
     for name in files:
         path = STATIC_DIR / name

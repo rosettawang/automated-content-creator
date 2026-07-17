@@ -67,6 +67,15 @@ def test_list_clips_query_count_is_bounded(client, make_clip, monkeypatch):
     assert n40 <= n8 + 2, f"query count scaled with clips: {n8} -> {n40} (N+1 regression)"
 
 
+def test_unknown_route_returns_json_error_not_html(client):
+    """C6: the JSON errorhandler answers even framework errors (404 here) as JSON, so
+    the frontend's response.json() never chokes on an HTML error page."""
+    r = client.get("/api/definitely-not-a-route")
+    assert r.status_code == 404
+    assert r.is_json, r.data[:120]
+    assert "error" in r.get_json()
+
+
 def test_stem_index_resolves_without_reglob(make_clip):
     """find_media_file resolves from the cached stem index (one listing), and a fresh
     file added afterward is still found (mtime invalidation / glob fallback)."""

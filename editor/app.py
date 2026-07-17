@@ -3,10 +3,13 @@ Routes live in blueprints/*.py; shared state and helpers live in core.py."""
 import logging
 import os
 
-from flask import Flask
+from flask import Flask, jsonify, request
+from werkzeug.exceptions import HTTPException
 
 import core
 from core import init_db, reconcile_orphaned_jobs, _no_cache_static, _backfill_clip_sources
+
+_log = logging.getLogger("editor.app")
 from blueprints.pages import bp as pages_bp
 from blueprints.jobs import bp as jobs_bp
 from blueprints.clips import bp as clips_bp
@@ -27,6 +30,17 @@ def create_app():
     app.register_blueprint(ai_bp)
     app.register_blueprint(campaigns_bp)
     app.register_blueprint(edits_bp)
+
+    @app.errorhandler(Exception)
+    def _json_error(e):
+        """Always answer the JSON API with JSON, never Flask's HTML error page —
+        the frontend parses response.json() and an HTML 500 surfaces as an opaque
+        'Unexpected token <' instead of the real message (fail-loudly)."""
+        if isinstance(e, HTTPException):
+            return jsonify({"error": e.description}), e.code
+        _log.exception("unhandled error on %s", request.path)
+        return jsonify({"error": f"internal server error: {e}"}), 500
+
     return app
 
 

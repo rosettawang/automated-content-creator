@@ -22,7 +22,7 @@ def clip_regions(clip_id):
 @bp.post("/api/clips/regions-scan")
 def regions_scan():
     if MEDIA_DIR is None:
-        return {"error": "MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder"}, 400
+        return err("MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder", 400)
     only_missing = bool((request.json or {}).get("only_missing", True))
     job_id = _new_job("Locating subjects", unit="clip")
     threading.Thread(target=_run_region_scan_job, args=(job_id, only_missing), daemon=True).start()
@@ -34,7 +34,7 @@ def clip_thumbnail(clip_id):
     with db_conn() as conn:
         row = conn.execute("SELECT file_stem FROM clips WHERE id = ?", (clip_id,)).fetchone()
     if not row:
-        return {"error": "not found"}, 404
+        return err("not found", 404)
     stem = row["file_stem"]
 
     cached = THUMB_CACHE / f"{stem}.jpg"
@@ -70,11 +70,11 @@ def clip_thumbnail(clip_id):
                 check=True, capture_output=True,
             )
         except subprocess.CalledProcessError:
-            return {"error": "no thumbnail"}, 404
+            return err("no thumbnail", 404)
         if cached.exists():
             return send_file(cached)
 
-    return {"error": "no thumbnail"}, 404
+    return err("no thumbnail", 404)
 
 
 @bp.get("/api/clips")
@@ -138,7 +138,7 @@ def clip_raw_metadata(clip_id):
     with db_conn() as conn:
         row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
     if not row:
-        return {"error": "not found"}, 404
+        return err("not found", 404)
 
     path = find_media_file(row["file_stem"])
     embedded = None
@@ -195,7 +195,7 @@ def update_clip_metadata(clip_id):
     with db_conn() as conn:
         row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
         if not row:
-            return {"error": "not found"}, 404
+            return err("not found", 404)
         updates = {k: (data[k] or "").strip() for k in METADATA_FIELDS if k in data}
         if updates:
             sets = ", ".join(f"{k} = ?" for k in updates)
@@ -218,10 +218,10 @@ def update_clip_metadata_bulk():
     data = request.json or {}
     clip_ids = data.get("clip_ids") or []
     if not clip_ids:
-        return {"error": "clip_ids is required"}, 400
+        return err("clip_ids is required", 400)
     updates = {k: (data[k] or "").strip() for k in METADATA_FIELDS if k in data}
     if not updates:
-        return {"error": "no metadata fields provided"}, 400
+        return err("no metadata fields provided", 400)
 
     sets = ", ".join(f"{k} = ?" for k in updates)
     stamped = []
@@ -244,7 +244,7 @@ def stamp_all():
     """Embed every clip's current metadata into its local media file, so the index
     is mirrored into the files themselves (and travels with them)."""
     if not exiftool_available():
-        return {"error": "exiftool not found on PATH -- install it (brew install exiftool)"}, 400
+        return err("exiftool not found on PATH -- install it (brew install exiftool)", 400)
     with db_conn() as conn:
         rows = conn.execute("SELECT * FROM clips").fetchall()
     stamped, skipped, failed = 0, 0, []
@@ -276,7 +276,7 @@ def export_metadata_xlsx():
     log_path = REPO_ROOT / "content_intake_log.xlsx"
     sheet_name = "Video Index (A2)"
     if not log_path.exists():
-        return {"error": f"{log_path.name} not found"}, 404
+        return err(f"{log_path.name} not found", 404)
 
     with db_conn() as conn:
         clips_by_stem = {r["file_stem"]: r for r in conn.execute("SELECT * FROM clips").fetchall()}

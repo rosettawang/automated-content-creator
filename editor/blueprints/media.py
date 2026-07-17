@@ -10,7 +10,7 @@ bp = Blueprint("media", __name__)
 @bp.post("/api/media/verify")
 def verify_media():
     if MEDIA_DIR is None:
-        return {"error": "MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder"}, 400
+        return err("MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder", 400)
     job_id = _new_job("Verifying media", unit="clip")
     threading.Thread(target=_run_media_verify_job, args=(job_id,), daemon=True).start()
     return jsonify({"job_id": job_id})
@@ -19,11 +19,11 @@ def verify_media():
 @bp.post("/api/drive-import")
 def drive_import():
     if MEDIA_DIR is None:
-        return {"error": "MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder"}, 400
+        return err("MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder", 400)
 
     urls = [u.strip() for u in request.json.get("urls", []) if u.strip()]
     if not urls:
-        return {"error": "no links provided"}, 400
+        return err("no links provided", 400)
 
     job_id = _new_job("Google Drive", unit="link")
     threading.Thread(target=_run_drive_job, args=(job_id, urls), daemon=True).start()
@@ -33,11 +33,11 @@ def drive_import():
 @bp.post("/api/photos-import")
 def photos_import():
     if MEDIA_DIR is None:
-        return {"error": "MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder"}, 400
+        return err("MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder", 400)
 
     urls = [u.strip() for u in request.json.get("urls", []) if u.strip()]
     if not urls:
-        return {"error": "no links provided"}, 400
+        return err("no links provided", 400)
 
     job_id = _new_job("Google Photos", unit="file")
     threading.Thread(target=_run_photos_job, args=(job_id, urls), daemon=True).start()
@@ -47,11 +47,11 @@ def photos_import():
 @bp.post("/api/import-files")
 def import_files():
     if MEDIA_DIR is None:
-        return {"error": "MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder"}, 400
+        return err("MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder", 400)
 
     files = request.files.getlist("files")
     if not files:
-        return {"error": "no files provided"}, 400
+        return err("no files provided", 400)
 
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
     results = []
@@ -108,13 +108,13 @@ def import_local_paths():
     succeeds, so an error can never lose the source file. Only reachable in the
     desktop app; the browser never has real paths to send here."""
     if MEDIA_DIR is None:
-        return {"error": "MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder"}, 400
+        return err("MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder", 400)
 
     body = request.json or {}
     paths = [str(p) for p in body.get("paths", []) if str(p).strip()]
     delete_originals = bool(body.get("delete_originals"))
     if not paths:
-        return {"error": "no paths provided"}, 400
+        return err("no paths provided", 400)
 
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
     results = []
@@ -185,10 +185,10 @@ def clip_media(clip_id):
     with db_conn() as conn:
         row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
     if not row:
-        return {"error": "not found"}, 404
+        return err("not found", 404)
     status, resolved = clip_media_status(row)
     if status != "present":
-        return {"error": f"'{row['file_stem']}' media is {status} — run Verify media to relink moved files."}, 404
+        return err(f"'{row['file_stem']}' media is {status} — run Verify media to relink moved files.", 404)
     path = Path(resolved)
     suffix = path.suffix.lower()
     if suffix in VIDEO_EXTS:
@@ -218,11 +218,11 @@ def pull_clip(clip_id):
     content hash, so it flips back to available_locally. Google Photos has no stable
     per-file URL, so a photos clip re-fetches its whole album and relinks by stem."""
     if MEDIA_DIR is None:
-        return {"error": "MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder"}, 400
+        return err("MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder", 400)
     with db_conn() as conn:
         row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
     if not row:
-        return {"error": "not found"}, 404
+        return err("not found", 404)
 
     status, _ = clip_media_status(row)
     if status == "present":
@@ -232,14 +232,14 @@ def pull_clip(clip_id):
     url = row["source_url"]
     if kind == "drive":
         if not url:
-            return {"error": "no Drive link recorded for this clip"}, 400
+            return err("no Drive link recorded for this clip", 400)
         job_id = _new_job(f"Re-downloading {row['file_stem']}", unit="link")
         threading.Thread(target=_run_drive_job, args=(job_id, [url]), daemon=True).start()
         return jsonify({"job_id": job_id, "source_kind": "drive"})
     if kind == "photos":
         albums = [a for a in ([url] if url else _photos_albums()) if a]
         if not albums:
-            return {"error": "no Google Photos album recorded to re-fetch from"}, 400
+            return err("no Google Photos album recorded to re-fetch from", 400)
         job_id = _new_job(f"Re-fetching album for {row['file_stem']}", unit="file")
         threading.Thread(target=_run_photos_job, args=(job_id, albums), daemon=True).start()
         return jsonify({"job_id": job_id, "source_kind": "photos",

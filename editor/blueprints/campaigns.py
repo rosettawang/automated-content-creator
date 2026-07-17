@@ -64,12 +64,12 @@ def update_campaign(campaign_id):
         fields.append("context_doc = ?")
         values.append((data.get("context_doc") or "").strip())
     if not fields:
-        return {"error": "nothing to update"}, 400
+        return err("nothing to update", 400)
     with db_conn() as conn:
         conn.execute(f"UPDATE campaigns SET {', '.join(fields)} WHERE id = ?", (*values, campaign_id))
         row = conn.execute("SELECT * FROM campaigns WHERE id = ?", (campaign_id,)).fetchone()
     if not row:
-        return {"error": "not found"}, 404
+        return err("not found", 404)
     return jsonify(dict(row))
 
 
@@ -134,7 +134,7 @@ def get_campaign(campaign_id):
     with db_conn() as conn:
         campaign = conn.execute("SELECT * FROM campaigns WHERE id = ?", (campaign_id,)).fetchone()
         if not campaign:
-            return {"error": "not found"}, 404
+            return err("not found", 404)
         edits = conn.execute(
             """SELECT e.*, COUNT(t.id) AS item_count
                FROM edits e
@@ -175,7 +175,7 @@ def campaign_things_add(campaign_id):
     data = request.json or {}
     name = (data.get("name") or "").strip()
     if not name:
-        return {"error": "name is required"}, 400
+        return err("name is required", 400)
     with db_conn() as conn:
         thing_id = _upsert_thing(conn, name, data.get("kind", ""), data.get("description", ""))
         conn.execute(
@@ -217,11 +217,11 @@ def campaign_chat_history(campaign_id):
 def campaign_chat_send(campaign_id):
     message = (request.json.get("message") or "").strip()
     if not message:
-        return {"error": "empty message"}, 400
+        return err("empty message", 400)
     with db_conn() as conn:
         campaign = conn.execute("SELECT * FROM campaigns WHERE id = ?", (campaign_id,)).fetchone()
         if not campaign:
-            return {"error": "not found"}, 404
+            return err("not found", 404)
         things = [dict(r) for r in conn.execute(
             """SELECT t.name, t.kind, t.description FROM campaign_things pt
                JOIN things t ON t.id = pt.thing_id WHERE pt.campaign_id = ?""",
@@ -244,7 +244,7 @@ def campaign_chat_send(campaign_id):
         try:
             result = campaign_chat(dict(campaign), things, in_campaign, catalog, history, message)
         except Exception as e:
-            return {"error": str(e)}, 502
+            return err(str(e), 502)
 
         conn.execute(
             "INSERT INTO campaign_messages (campaign_id, role, content) VALUES (?, 'user', ?)",

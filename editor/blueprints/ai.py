@@ -23,7 +23,7 @@ def create_thing():
     data = request.json or {}
     name = (data.get("name") or "").strip()
     if not name:
-        return {"error": "name is required"}, 400
+        return err("name is required", 400)
     description = (data.get("description") or "").strip() or None
     # Kind is inferred, not asked for -- the user shouldn't have to categorize.
     kind = (data.get("kind") or "").strip()
@@ -36,7 +36,7 @@ def create_thing():
                 (name, kind, description),
             )
         except sqlite3.IntegrityError:
-            return {"error": f"'{name}' is already in your things list"}, 409
+            return err(f"'{name}' is already in your things list", 409)
         row = conn.execute("SELECT * FROM things WHERE name = ?", (name,)).fetchone()
     return jsonify(dict(row)), 201
 
@@ -46,7 +46,7 @@ def update_thing(thing_id):
     data = request.json or {}
     with db_conn() as conn:
         if not conn.execute("SELECT 1 FROM things WHERE id = ?", (thing_id,)).fetchone():
-            return {"error": "not found"}, 404
+            return err("not found", 404)
         fields, values = [], []
         for col in ("name", "kind", "description"):
             if col in data:
@@ -60,7 +60,7 @@ def update_thing(thing_id):
             try:
                 conn.execute(f"UPDATE things SET {', '.join(fields)} WHERE id = ?", values)
             except sqlite3.IntegrityError:
-                return {"error": "another thing already has that name"}, 409
+                return err("another thing already has that name", 409)
         row = conn.execute("SELECT * FROM things WHERE id = ?", (thing_id,)).fetchone()
     return jsonify(dict(row))
 
@@ -100,7 +100,7 @@ def pick_thing_thumbnail(thing_id):
     with db_conn() as conn:
         clip_id = _pick_thing_thumbnail(conn, thing_id)
     if clip_id is None:
-        return {"error": "no local clips to choose a cover from"}, 404
+        return err("no local clips to choose a cover from", 404)
     return jsonify({"thing_id": thing_id, "clip_id": clip_id})
 
 
@@ -121,14 +121,14 @@ def thing_thumbnail(thing_id):
     if clip_id is None:
         for r in m:
             return clip_thumbnail(r["id"])
-        return {"error": "no thumbnail"}, 404
+        return err("no thumbnail", 404)
     return clip_thumbnail(clip_id)
 
 
 @bp.post("/api/things/scan")
 def scan_things():
     if MEDIA_DIR is None:
-        return {"error": "MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder"}, 400
+        return err("MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder", 400)
     data = request.json or {}
     thing_ids = data.get("thing_ids") or ([data["thing_id"]] if data.get("thing_id") else [])
     job_id = _new_job("Scanning clips", unit="clip")
@@ -139,7 +139,7 @@ def scan_things():
 @bp.post("/api/faces/detect")
 def faces_detect():
     if MEDIA_DIR is None:
-        return {"error": "MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder"}, 400
+        return err("MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder", 400)
     job_id = _new_job("Detecting faces", unit="clip")
     threading.Thread(target=_run_face_detect_job, args=(job_id,), daemon=True).start()
     return jsonify({"job_id": job_id})
@@ -177,7 +177,7 @@ def face_thumb(face_id):
     with db_conn() as conn:
         row = conn.execute("SELECT thumb_path FROM faces WHERE id = ?", (face_id,)).fetchone()
     if not row or not row["thumb_path"] or not Path(row["thumb_path"]).exists():
-        return {"error": "not found"}, 404
+        return err("not found", 404)
     return send_file(row["thumb_path"])
 
 
@@ -188,7 +188,7 @@ def faces_name():
     data = request.json or {}
     name = (data.get("name") or "").strip()
     if not name:
-        return {"error": "name is required"}, 400
+        return err("name is required", 400)
     with db_conn() as conn:
         row = conn.execute("SELECT id FROM people WHERE lower(name) = lower(?)", (name,)).fetchone()
         if row:
@@ -234,7 +234,7 @@ def person_clips(person_id):
 @bp.post("/api/motion/detect")
 def motion_detect():
     if MEDIA_DIR is None:
-        return {"error": "MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder"}, 400
+        return err("MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder", 400)
     data = request.json or {}
     labels = [l.strip() for l in data.get("labels", []) if l.strip()]
     job_id = _new_job("Detecting motion", unit="clip")
@@ -261,7 +261,7 @@ def search_semantic():
     data = request.json or {}
     query = (data.get("query") or "").strip()
     if not query:
-        return {"error": "query is required"}, 400
+        return err("query is required", 400)
     top_k = int(data.get("top_k") or 40)
     campaign_id = (data.get("campaign") or "").strip()
     quality_intent, query = _quality_intent(query)
@@ -283,7 +283,7 @@ def search_semantic():
         try:
             qvec = semantic.embed(query)
         except Exception as e:
-            return {"error": f"embedding failed: {e}"}, 502
+            return err(f"embedding failed: {e}", 502)
         ranked = semantic.rank(qvec, [(r["clip_id"], r["vector"]) for r in vec_rows], top_k)
 
         scores = {cid: sc for cid, sc in ranked}
@@ -318,23 +318,23 @@ def deep_index_endpoint(clip_id):
     with db_conn() as conn:
         row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
         if not row:
-            return {"error": "not found"}, 404
+            return err("not found", 404)
         path = find_media_file(row["file_stem"])
         if not path:
-            return {"error": f"'{row['file_stem']}' not found in MEDIA_DIR"}, 404
+            return err(f"'{row['file_stem']}' not found in MEDIA_DIR", 404)
         if path.suffix.lower() in IMAGE_EXTS:
-            return {"error": "deep index applies to videos; use Analyze for photos"}, 400
+            return err("deep index applies to videos; use Analyze for photos", 400)
         try:
             n = _deep_index_one(conn, clip_id, path)
         except Exception as e:
-            return {"error": str(e)}, 502
+            return err(str(e), 502)
     return jsonify({"status": "ok", "segments": n})
 
 
 @bp.post("/api/deep-index")
 def deep_index_all():
     if MEDIA_DIR is None:
-        return {"error": "MEDIA_DIR is not set"}, 400
+        return err("MEDIA_DIR is not set", 400)
     data = request.json or {}
     clip_ids = data.get("clip_ids") or []
     use_batch = bool(data.get("batch"))
@@ -349,10 +349,10 @@ def transcribe_clip(clip_id):
     with db_conn() as conn:
         row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
         if not row:
-            return {"error": "not found"}, 404
+            return err("not found", 404)
         path = find_media_file(row["file_stem"])
         if not path:
-            return {"error": f"'{row['file_stem']}' not found in MEDIA_DIR"}, 404
+            return err(f"'{row['file_stem']}' not found in MEDIA_DIR", 404)
 
         model = get_whisper_model()
         result = model.transcribe(str(path))
@@ -369,10 +369,10 @@ def analyze_clip(clip_id):
     with db_conn() as conn:
         row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
         if not row:
-            return {"error": "not found"}, 404
+            return err("not found", 404)
         path = find_media_file(row["file_stem"])
         if not path:
-            return {"error": f"'{row['file_stem']}' not found in MEDIA_DIR"}, 404
+            return err(f"'{row['file_stem']}' not found in MEDIA_DIR", 404)
 
         # Stills have no timeline to seek into; a mid-clip -ss on a single-frame image
         # yields no output (this is the HEIC/photo analyze bug). Only seek for video.
@@ -395,7 +395,7 @@ def analyze_clip(clip_id):
         try:
             analysis = _frame_analysis(image_bytes, _active_watchlist(conn))
         except Exception as e:
-            return {"error": str(e)}, 502
+            return err(str(e), 502)
 
         # Merge, don't clobber: preserve any human-authored context and union the tags
         # so a manual "describe" pass and the AI pass reinforce each other.
@@ -437,11 +437,11 @@ def infer_things():
     write context alone and the subjects worth watching for are derived from it."""
     context = (request.json or {}).get("context", "").strip()
     if not context:
-        return {"error": "context is required"}, 400
+        return err("context is required", 400)
     try:
         inferred = infer_campaign_things("imported footage", context)
     except Exception as e:
-        return {"error": str(e)}, 502
+        return err(str(e), 502)
     created = []
     with db_conn() as conn:
         for t in inferred.things:
@@ -458,7 +458,7 @@ def suggest_content_route():
     try:
         suggestions = suggest_content(clips)
     except Exception as e:
-        return {"error": str(e)}, 502
+        return err(str(e), 502)
     return jsonify({"ideas": [i.model_dump() for i in suggestions.ideas]})
 
 
@@ -466,11 +466,11 @@ def suggest_content_route():
 def composio_actions():
     toolkit = request.args.get("toolkit", "").strip()
     if not toolkit:
-        return {"error": "toolkit query param is required, e.g. ?toolkit=instagram"}, 400
+        return err("toolkit query param is required, e.g. ?toolkit=instagram", 400)
     try:
         return jsonify(list_toolkit_actions(toolkit))
     except Exception as e:
-        return {"error": str(e)}, 502
+        return err(str(e), 502)
 
 
 @bp.post("/api/composio/connect")
@@ -479,13 +479,13 @@ def composio_connect():
     toolkit = data.get("toolkit", "").strip()
     auth_config_id = data.get("auth_config_id", "").strip()
     if not toolkit or not auth_config_id:
-        return {"error": "toolkit and auth_config_id are required"}, 400
+        return err("toolkit and auth_config_id are required", 400)
     try:
         connection = initiate_connection(
             toolkit, auth_config_id, callback_url=data.get("callback_url")
         )
     except Exception as e:
-        return {"error": str(e)}, 502
+        return err(str(e), 502)
     return jsonify({"redirect_url": connection.redirect_url})
 
 
@@ -494,11 +494,11 @@ def composio_execute():
     data = request.json
     action = data.get("action", "").strip()
     if not action:
-        return {"error": "action is required"}, 400
+        return err("action is required", 400)
     try:
         result = execute_action(action, data.get("arguments", {}))
         if hasattr(result, "model_dump"):
             result = result.model_dump()
         return jsonify({"result": result})
     except Exception as e:
-        return {"error": str(e)}, 502
+        return err(str(e), 502)

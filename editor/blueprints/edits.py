@@ -50,7 +50,7 @@ def get_edit(edit_id):
     with db_conn() as conn:
         edit = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
         if not edit:
-            return {"error": "not found"}, 404
+            return err("not found", 404)
         items = conn.execute(
             """SELECT timeline_items.*, clips.file_stem, clips.description,
                       clips.duration_s AS clip_duration_s,
@@ -89,11 +89,11 @@ def update_edit(edit_id):
     if "aspect" in data:
         aspect = data.get("aspect")
         if aspect not in (None, "", "source", *ASPECT_DIMS.keys()):
-            return {"error": f"invalid aspect (use source/{'/'.join(ASPECT_DIMS)})"}, 400
+            return err(f"invalid aspect (use source/{'/'.join(ASPECT_DIMS)})", 400)
         fields.append("aspect = ?")
         values.append(aspect or "source")
     if not fields:
-        return {"error": "nothing to update"}, 400
+        return err("nothing to update", 400)
     with db_conn() as conn:
         conn.execute(f"UPDATE edits SET {', '.join(fields)} WHERE id = ?", (*values, edit_id))
         # Changing the output aspect invalidates any stored (aspect-specific) crops:
@@ -102,7 +102,7 @@ def update_edit(edit_id):
             _apply_auto_framing(conn, edit_id, reset=True)
         row = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
     if not row:
-        return {"error": "not found"}, 404
+        return err("not found", 404)
     return jsonify(dict(row))
 
 
@@ -118,11 +118,11 @@ def generate_into_edit(edit_id):
     """Append an AI rough cut to an existing edit, using its campaign's context."""
     prompt = (request.json.get("prompt") or "").strip()
     if not prompt:
-        return {"error": "prompt is required"}, 400
+        return err("prompt is required", 400)
     with db_conn() as conn:
         edit = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
         if not edit:
-            return {"error": "not found"}, 404
+            return err("not found", 404)
         clips = _pool_for_generation(conn, [], edit["campaign_id"])
         if not clips:
             return {"error": "No downloaded clips to assemble from. Import/pull clips into "
@@ -131,7 +131,7 @@ def generate_into_edit(edit_id):
         try:
             plan = generate_rough_cut(full_prompt, clips)
         except Exception as e:
-            return {"error": str(e)}, 502
+            return err(str(e), 502)
         max_pos = conn.execute(
             "SELECT COALESCE(MAX(position), -1) AS m FROM timeline_items WHERE edit_id = ?",
             (edit_id,),
@@ -177,11 +177,11 @@ def chat_edit(edit_id):
     current timeline first (so it can be undone), then replaces it with the revision."""
     prompt = (request.json.get("prompt") or "").strip()
     if not prompt:
-        return {"error": "prompt is required"}, 400
+        return err("prompt is required", 400)
     with db_conn() as conn:
         edit = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
         if not edit:
-            return {"error": "not found"}, 404
+            return err("not found", 404)
 
         current = conn.execute(
             """SELECT timeline_items.clip_id, timeline_items.in_point, timeline_items.out_point,
@@ -221,7 +221,7 @@ def chat_edit(edit_id):
         try:
             result = revise_edit(prompt, current_timeline, pool, aspect=(edit["aspect"] or "source"))
         except Exception as e:
-            return {"error": str(e)}, 502
+            return err(str(e), 502)
 
         # Snapshot BEFORE applying, so undo returns to the pre-prompt version.
         _snapshot_edit(conn, edit_id, prompt)
@@ -260,7 +260,7 @@ def undo_edit(edit_id):
             (edit_id,),
         ).fetchone()
         if not snap:
-            return {"error": "nothing to undo"}, 400
+            return err("nothing to undo", 400)
 
         rows = json.loads(snap["data"])
         conn.execute("DELETE FROM timeline_items WHERE edit_id = ?", (edit_id,))
@@ -292,13 +292,13 @@ def generate_edit_from_scratch():
     data = request.json or {}
     prompt = (data.get("prompt") or "").strip()
     if not prompt:
-        return {"error": "prompt is required"}, 400
+        return err("prompt is required", 400)
 
     clip_ids = data.get("clip_ids") or []
     try:
         clip_ids = [int(c) for c in clip_ids]
     except (TypeError, ValueError):
-        return {"error": "clip_ids must be a list of integers"}, 400
+        return err("clip_ids must be a list of integers", 400)
     campaign_id = data.get("campaign_id")
 
     # An explicit non-'source' aspect from the editor's Frame gear wins over anything
@@ -316,7 +316,7 @@ def generate_edit_from_scratch():
         try:
             plan = generate_rough_cut(full_prompt, clips)
         except Exception as e:
-            return {"error": str(e)}, 502
+            return err(str(e), 502)
 
         # Precedence: explicit gear choice > model-inferred aspect > 'source'.
         plan_aspect = getattr(plan, "aspect", None)
@@ -431,13 +431,13 @@ def suggest_crop(edit_id, item_id):
             (item_id, edit_id),
         ).fetchone()
         if not edit or not item:
-            return {"error": "not found"}, 404
+            return err("not found", 404)
         aspect = (edit["aspect"] if "aspect" in edit.keys() else None) or "source"
         if aspect == "source":
-            return {"error": "Set a target frame (e.g. 9:16) before suggesting a crop."}, 400
+            return err("Set a target frame (e.g. 9:16) before suggesting a crop.", 400)
         source = find_media_file(item["file_stem"])
         if not source:
-            return {"error": f"'{item['file_stem']}' not found in MEDIA_DIR"}, 404
+            return err(f"'{item['file_stem']}' not found in MEDIA_DIR", 404)
 
         # Sample a frame at the item's in-point (a moment actually used in the cut).
         ts = max(0.0, float(item["in_point"] or 0))
@@ -452,7 +452,7 @@ def suggest_crop(edit_id, item_id):
                 image_bytes = frame_path.read_bytes()
             crop = propose_crop(image_bytes, aspect)
         except Exception as e:
-            return {"error": str(e)}, 502
+            return err(str(e), 502)
 
         conn.execute(
             """UPDATE timeline_items SET crop_x=?, crop_y=?, crop_w=?, crop_h=?
@@ -481,13 +481,13 @@ def suggest_follow(edit_id, item_id):
             (item_id, edit_id),
         ).fetchone()
         if not edit or not item:
-            return {"error": "not found"}, 404
+            return err("not found", 404)
         aspect = (edit["aspect"] if "aspect" in edit.keys() else None) or "source"
         if aspect == "source":
-            return {"error": "Set a target frame (e.g. 9:16) before reframing."}, 400
+            return err("Set a target frame (e.g. 9:16) before reframing.", 400)
         source = find_media_file(item["file_stem"])
         if not source:
-            return {"error": f"'{item['file_stem']}' not found in MEDIA_DIR"}, 404
+            return err(f"'{item['file_stem']}' not found in MEDIA_DIR", 404)
 
         t_in = max(0.0, float(item["in_point"] or 0))
         t_out = float(item["out_point"] or t_in)
@@ -499,7 +499,7 @@ def suggest_follow(edit_id, item_id):
             start = propose_crop(_frame_at(source, t0), aspect)
             end = propose_crop(_frame_at(source, t1), aspect)
         except Exception as e:
-            return {"error": str(e)}, 502
+            return err(str(e), 502)
 
         # If the window hardly moves, keep it static (no kb_*) to avoid needless drift.
         moved = (abs(start.crop_x - end.crop_x) > 0.03 or abs(start.crop_y - end.crop_y) > 0.03
@@ -553,7 +553,7 @@ def export_campaign(edit_id):
     with db_conn() as conn:
         campaign = conn.execute("SELECT * FROM edits WHERE id = ?", (edit_id,)).fetchone()
         if not campaign:
-            return {"error": "not found"}, 404
+            return err("not found", 404)
         items = conn.execute(
             """
             SELECT timeline_items.*, clips.file_stem, clips.media_path
@@ -566,7 +566,7 @@ def export_campaign(edit_id):
         ).fetchall()
 
     if not items:
-        return {"error": "timeline is empty"}, 400
+        return err("timeline is empty", 400)
 
     # Pre-flight (synchronous, so the user gets an immediate 409): refuse to render if
     # any clip's media is missing, rather than letting ffmpeg fail partway.

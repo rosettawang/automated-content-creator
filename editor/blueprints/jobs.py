@@ -10,7 +10,7 @@ def cancel_job(job_id):
     with _jobs_lock:
         job = _jobs.get(job_id)
         if not job:
-            return {"error": "unknown job"}, 404
+            return err("unknown job", 404)
         if job["finished"]:
             return jsonify({"cancelled": False, "reason": "already finished"})
         job["cancelled"] = True
@@ -34,7 +34,7 @@ def cancel_job(job_id):
 def import_job(job_id):
     snap = _job_snapshot(job_id)
     if snap is None:
-        return {"error": "unknown job"}, 404
+        return err("unknown job", 404)
     return jsonify(snap)
 
 
