@@ -431,6 +431,9 @@ async function loadTimeline() {
   if (audioSel) audioSel.value = edit.audio_mode || "ambient";
   const rat = document.getElementById("audio-rationale");
   if (rat) rat.textContent = edit.audio_rationale || "";
+  const voScript = document.getElementById("vo-script");
+  if (voScript) voScript.value = edit.vo_script || "";
+  syncVoScriptVisibility();
   if (!timeline.some((i) => i.id === selectedItemId)) selectedItemId = null;
   rebuildSegments();
   renderTimeline();
@@ -461,8 +464,16 @@ document.getElementById("aspect-select").addEventListener("change", async (e) =>
   if (typeof refreshCropOverlay === "function") refreshCropOverlay();
 });
 
+// Show the voiceover script field only when Audio = Voiceover.
+function syncVoScriptVisibility() {
+  const sel = document.getElementById("audio-select");
+  const row = document.getElementById("vo-script-row");
+  if (row && sel) row.classList.toggle("hidden", sel.value !== "voiceover");
+}
+
 // Persist the audio treatment on the current edit (mirrors the aspect control).
 document.getElementById("audio-select").addEventListener("change", async (e) => {
+  syncVoScriptVisibility();
   if (!currentEditId) return;   // pending default for the next Generate
   await api(`/api/edits/${currentEditId}`, {
     method: "PUT",
@@ -471,6 +482,22 @@ document.getElementById("audio-select").addEventListener("change", async (e) => 
   // A manual pick clears the model's rationale (it no longer explains the choice).
   const rat = document.getElementById("audio-rationale");
   if (rat) rat.textContent = "";
+});
+
+// Save the (editable) voiceover script — synthesized only at export, never here.
+document.getElementById("vo-script-save").addEventListener("click", async () => {
+  if (!currentEditId) return;
+  const status = document.getElementById("vo-script-status");
+  status.textContent = "Saving…";
+  try {
+    await api(`/api/edits/${currentEditId}`, {
+      method: "PUT",
+      body: JSON.stringify({ vo_script: document.getElementById("vo-script").value }),
+    });
+    status.textContent = "Saved. Synthesized on export.";
+  } catch (err) {
+    status.textContent = `Error: ${err.message}`;
+  }
 });
 
 // ---- settings gear popover ----

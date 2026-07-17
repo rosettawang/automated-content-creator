@@ -623,3 +623,13 @@ html.embedded #app-title { display: none; }
    column, so the stage is a single column here.) */
 html.embedded #source-panel { display: none; }
 html.embedded #stage { grid-template-columns: 1fr; }
+
+/* Voiceover script field in the audio settings (shown only for voiceover mode). */
+#vo-script-row { padding: 0.4rem 0 0.2rem; }
+#vo-script-row.hidden { display: none; }
+#vo-script {
+  width: 100%; box-sizing: border-box; margin-top: 0.25rem; font-size: 0.82rem;
+  padding: 0.4rem; border-radius: 6px; border: 1px solid #444; background: #1a1a1a;
+  color: #eee; resize: vertical;
+}
+.vo-script-actions { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.3rem; }

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import shutil
 import subprocess
@@ -15,9 +16,12 @@ import tempfile
 from pathlib import Path
 
 import config
+import tts
 from db import get_conn
 from media_files import _source_dims, _has_audio, find_media_file
 from jobs_runtime import _update_job, _run_cancellable, _job_is_cancelled, JobCancelled
+
+log = logging.getLogger("editor.export")
 
 
 _EDIT_LIST_COLS = """
@@ -70,6 +74,25 @@ ASPECT_DIMS = {
 # 'clean' (strip audio) and everything else as normalized ambient; 'music'/'voiceover'
 # keep their stored plan but export as ambient until Phases 2–3 land.
 AUDIO_MODES = ("ambient", "speech-led", "music", "voiceover", "clean")
+
+
+def _voiceover_mix_filter(duck: float = 0.18) -> str:
+    """filter_complex to lay a voiceover over ducked ambient: ambient dropped to ~duck
+    (0.18 ≈ -15dB), VO at full, mixed to the VIDEO's length so a too-long VO is cut
+    (we warn) rather than stretching the picture."""
+    return (f"[0:a]volume={duck}[amb];"
+            f"[amb][1:a]amix=inputs=2:duration=first:dropout_transition=200[a]")
+
+
+def _media_duration(path) -> float | None:
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=nokey=1:noprint_wrappers=1", str(path)],
+            capture_output=True, text=True, timeout=30)
+        return float(out.stdout.strip())
+    except Exception:
+        return None
 
 
 def _segment_audio_args(audio_mode: str, has_audio: bool) -> dict:
@@ -386,12 +409,15 @@ def _prune_segment_cache(keep: int = _SEGMENT_CACHE_MAX) -> None:
         p.unlink(missing_ok=True)
 
 
-def _run_export_job(job_id, name, explicit_aspect, dims, plan, audio_mode="ambient"):
+def _run_export_job(job_id, name, explicit_aspect, dims, plan, audio_mode="ambient",
+                    vo_script=None, vo_voice=None):
     """Render the timeline to a social-normalized MP4 with live progress. `plan` is a
     list of self-contained item dicts (source path + in/out + crop/kb) so it needs no
     request context. Mirrors the import-job pattern: total = segments + 1 concat step.
-    `audio_mode` picks the audio treatment (spec: specs/audio-design.md)."""
-    # Phase 1 renders 'clean' (no audio) vs everything-else (normalized ambient).
+    `audio_mode` picks the audio treatment (spec: specs/audio-design.md); voiceover mode
+    also synthesizes `vo_script` and lays it over ducked ambient in a final pass."""
+    # Segments carry normalized ambient audio for every mode except 'clean' (which
+    # strips it). Voiceover starts from ambient, then the VO is mixed on top post-concat.
     audio_treat = "clean" if audio_mode == "clean" else "ambient"
     region_conn = get_conn() if explicit_aspect else None
     output_path = None
@@ -494,9 +520,39 @@ def _run_export_job(job_id, name, explicit_aspect, dims, plan, audio_mode="ambie
                  "-c", "copy", "-movflags", "+faststart", str(output_path)],
             )
             _prune_segment_cache()  # bound the cache to the most-recent N segments
+
+            # Voiceover: synthesize the script and lay it over ducked ambient. Best-effort
+            # — if TTS isn't configured, keep the ambient render and warn (never hard-fail
+            # the whole export over the audio layer).
+            vo_warning = None
+            if audio_mode == "voiceover" and (vo_script or "").strip():
+                _update_job(job_id, phase="voiceover", current="synthesizing voiceover")
+                try:
+                    vo_mp3 = tmp / "vo.mp3"
+                    tts.synthesize(vo_script, str(vo_mp3), voice=vo_voice)
+                    total = sum(it["out_point"] - it["in_point"] for it in plan)
+                    vo_dur = _media_duration(vo_mp3)
+                    if vo_dur and vo_dur > total + 0.5:
+                        vo_warning = (f"Voiceover is {vo_dur:.0f}s but the video is "
+                                      f"{total:.0f}s — it was cut to fit. Shorten the script.")
+                    mixed = tmp / f"mixed{output_path.suffix}"
+                    _run_cancellable(job_id, [
+                        "ffmpeg", "-y", "-i", str(output_path), "-i", str(vo_mp3),
+                        "-filter_complex", _voiceover_mix_filter(),
+                        "-map", "0:v", "-map", "[a]", "-c:v", "copy",
+                        "-c:a", "aac", "-ar", "48000", "-ac", "2",
+                        "-movflags", "+faststart", str(mixed)])
+                    shutil.move(str(mixed), str(output_path))
+                except tts.TTSUnavailable as e:
+                    vo_warning = f"Voiceover skipped (kept ambient audio): {e}"
+                    log.warning("%s", vo_warning)
+
+            result = {"output": str(output_path), "width": dims[0], "height": dims[1],
+                      "fps": EXPORT_FPS}
+            if vo_warning:
+                result["warning"] = vo_warning
             _update_job(job_id, done=len(plan) + 1, finished=True, current=None, phase="done",
-                        results=[{"output": str(output_path),
-                                  "width": dims[0], "height": dims[1], "fps": EXPORT_FPS}])
+                        results=[result])
     except JobCancelled:
         # Remove any partial output left by a killed concat step.
         if output_path is not None:

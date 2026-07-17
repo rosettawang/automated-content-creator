@@ -44,6 +44,17 @@
           </select>
         </label>
         <div id="audio-rationale" class="settings-substatus"></div>
+        <!-- Voiceover script: editable BEFORE synthesis (never straight-to-audio).
+             Shown only when Audio = Voiceover. -->
+        <div id="vo-script-row" class="hidden">
+          <span class="settings-label">Voiceover script</span>
+          <textarea id="vo-script" rows="4"
+            placeholder="Write/edit the narration. It's synthesized on export and laid over ducked ambient. Keep it to roughly the video's length."></textarea>
+          <div class="vo-script-actions">
+            <button id="vo-script-save" type="button">Save script</button>
+            <span id="vo-script-status" class="settings-substatus"></span>
+          </div>
+        </div>
         <div class="settings-row" title="Re-check every clip's file on disk; relink files that moved by content hash">
           <span class="settings-label">Media</span>
           <button id="verify-media-btn" type="button">Verify / relink</button>
