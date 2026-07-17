@@ -116,15 +116,7 @@ function _mediaErrorText(el) {
   el.addEventListener("playing", () => { if (el === programVideo) showProgramMessage(""); });
 });
 
-// ---------- api ----------
-async function api(path, options = {}) {
-  const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || res.statusText);
-  }
-  return res.status === 204 ? null : res.json();
-}
+// api() is provided globally by common.js (prepended to every bundle).
 
 function fmt(t) {
   if (!isFinite(t)) t = 0;
@@ -158,9 +150,7 @@ window.addEventListener("message", (e) => {
   if (currentEditId) loadTimeline();
 });
 
-function esc(s) {
-  return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
+// esc() is provided globally by common.js.
 
 function renderClipList() {
   const list = document.getElementById("clip-list");

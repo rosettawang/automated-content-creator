@@ -41,8 +41,11 @@ def panel_bundle(panel):
     files = PANEL_BUNDLES.get(panel)
     if not files:
         return err("unknown bundle", 404)
+    # common.js first in every bundle: defines the shared window.api/esc/pollJob the
+    # per-panel files rely on (each bundle is its own IIFE, so they can't otherwise
+    # see helpers defined in a sibling bundle).
     parts = []
-    for name in files:
+    for name in ["common.js", *files]:
         path = STATIC_DIR / name
         parts.append(f"// ===== {name} =====\n{path.read_text()}")
     body = "(function () {\n" + "\n".join(parts) + "\n})();\n"

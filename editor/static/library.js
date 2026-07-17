@@ -910,25 +910,8 @@ function renderJobProgress(job) {
 
 // Kick off a server-side import job and poll it to completion; returns results[].
 async function runServerJob(endpoint, body) {
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const started = await res.json();
-  if (!res.ok) throw new Error(started.error || res.statusText);
-
-  for (;;) {
-    const r = await fetch(`/api/import-jobs/${started.job_id}`);
-    const job = await r.json();
-    if (!r.ok) throw new Error(job.error || r.statusText);
-    renderJobProgress(job);
-    if (job.finished) {
-      if (job.error) throw new Error(job.error);
-      return job.results;
-    }
-    await sleep(700);
-  }
+  const started = await api(endpoint, { method: "POST", body: JSON.stringify(body) });
+  return pollJob(started.job_id, renderJobProgress);
 }
 
 // Re-download a not-local clip from its recorded source, poll the job, then refresh
@@ -938,18 +921,9 @@ async function redownloadClip(clip, btnEl) {
   const label = btnEl ? btnEl.textContent : null;
   if (btnEl) { btnEl.disabled = true; btnEl.textContent = "Re-downloading…"; }
   try {
-    const res = await fetch(`/api/clips/${clip.id}/pull`, { method: "POST" });
-    const started = await res.json();
-    if (!res.ok) throw new Error(started.error || res.statusText);
+    const started = await api(`/api/clips/${clip.id}/pull`, { method: "POST" });
     if (started.job_id) {
-      for (;;) {
-        const r = await fetch(`/api/import-jobs/${started.job_id}`);
-        const job = await r.json();
-        if (!r.ok) throw new Error(job.error || r.statusText);
-        renderJobProgress(job);
-        if (job.finished) { if (job.error) throw new Error(job.error); break; }
-        await sleep(700);
-      }
+      await pollJob(started.job_id, renderJobProgress);
       setProgress(null, "");
     }
     await loadClips();
