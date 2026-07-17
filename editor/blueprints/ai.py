@@ -7,15 +7,14 @@ bp = Blueprint("ai", __name__)
 
 @bp.get("/api/things")
 def list_things():
-    conn = get_conn()
-    rows = conn.execute(
-        """SELECT t.*, COUNT(ct.clip_id) AS clip_count
-           FROM things t
-           LEFT JOIN clip_things ct ON ct.thing_id = t.id
-           GROUP BY t.id
-           ORDER BY t.name COLLATE NOCASE"""
-    ).fetchall()
-    conn.close()
+    with db_conn() as conn:
+        rows = conn.execute(
+            """SELECT t.*, COUNT(ct.clip_id) AS clip_count
+               FROM things t
+               LEFT JOIN clip_things ct ON ct.thing_id = t.id
+               GROUP BY t.id
+               ORDER BY t.name COLLATE NOCASE"""
+        ).fetchall()
     return jsonify([dict(r) for r in rows])
 
 
@@ -30,76 +29,66 @@ def create_thing():
     kind = (data.get("kind") or "").strip()
     if not kind:
         kind = classify_thing_kind(name, description or "")
-    conn = get_conn()
-    try:
-        conn.execute(
-            "INSERT INTO things (name, kind, description, active) VALUES (?, ?, ?, 1)",
-            (name, kind, description),
-        )
-        conn.commit()
-    except sqlite3.IntegrityError:
-        conn.close()
-        return {"error": f"'{name}' is already in your things list"}, 409
-    row = conn.execute("SELECT * FROM things WHERE name = ?", (name,)).fetchone()
-    conn.close()
+    with db_conn() as conn:
+        try:
+            conn.execute(
+                "INSERT INTO things (name, kind, description, active) VALUES (?, ?, ?, 1)",
+                (name, kind, description),
+            )
+        except sqlite3.IntegrityError:
+            return {"error": f"'{name}' is already in your things list"}, 409
+        row = conn.execute("SELECT * FROM things WHERE name = ?", (name,)).fetchone()
     return jsonify(dict(row)), 201
 
 
 @bp.patch("/api/things/<int:thing_id>")
 def update_thing(thing_id):
     data = request.json or {}
-    conn = get_conn()
-    if not conn.execute("SELECT 1 FROM things WHERE id = ?", (thing_id,)).fetchone():
-        conn.close()
-        return {"error": "not found"}, 404
-    fields, values = [], []
-    for col in ("name", "kind", "description"):
-        if col in data:
-            fields.append(f"{col} = ?")
-            values.append((data[col] or "").strip() or None)
-    if "active" in data:
-        fields.append("active = ?")
-        values.append(1 if data["active"] else 0)
-    if fields:
-        values.append(thing_id)
-        try:
-            conn.execute(f"UPDATE things SET {', '.join(fields)} WHERE id = ?", values)
-            conn.commit()
-        except sqlite3.IntegrityError:
-            conn.close()
-            return {"error": "another thing already has that name"}, 409
-    row = conn.execute("SELECT * FROM things WHERE id = ?", (thing_id,)).fetchone()
-    conn.close()
+    with db_conn() as conn:
+        if not conn.execute("SELECT 1 FROM things WHERE id = ?", (thing_id,)).fetchone():
+            return {"error": "not found"}, 404
+        fields, values = [], []
+        for col in ("name", "kind", "description"):
+            if col in data:
+                fields.append(f"{col} = ?")
+                values.append((data[col] or "").strip() or None)
+        if "active" in data:
+            fields.append("active = ?")
+            values.append(1 if data["active"] else 0)
+        if fields:
+            values.append(thing_id)
+            try:
+                conn.execute(f"UPDATE things SET {', '.join(fields)} WHERE id = ?", values)
+            except sqlite3.IntegrityError:
+                return {"error": "another thing already has that name"}, 409
+        row = conn.execute("SELECT * FROM things WHERE id = ?", (thing_id,)).fetchone()
     return jsonify(dict(row))
 
 
 @bp.delete("/api/things/<int:thing_id>")
 def delete_thing(thing_id):
-    conn = get_conn()
-    conn.execute("DELETE FROM things WHERE id = ?", (thing_id,))
-    conn.commit()
-    conn.close()
+    with db_conn() as conn:
+        conn.execute("DELETE FROM things WHERE id = ?", (thing_id,))
     return {"status": "deleted"}
 
 
 @bp.get("/api/things/<int:thing_id>/clips")
 def thing_clips(thing_id):
-    conn = get_conn()
-    rows = conn.execute(
-        """SELECT c.* FROM clips c
-           JOIN clip_things ct ON ct.clip_id = c.id
-           WHERE ct.thing_id = ?
-           ORDER BY c.id DESC""",
-        (thing_id,),
-    ).fetchall()
-    # Attach this thing's region (where it sits in the frame) per clip, when known.
-    boxes = {
-        r["clip_id"]: {"x": r["x"], "y": r["y"], "w": r["w"], "h": r["h"]}
-        for r in conn.execute(
-            "SELECT clip_id, x, y, w, h FROM clip_regions WHERE thing_id = ?", (thing_id,)
-        )
-    }
-    conn.close()
+    with db_conn() as conn:
+        rows = conn.execute(
+            """SELECT c.* FROM clips c
+               JOIN clip_things ct ON ct.clip_id = c.id
+               WHERE ct.thing_id = ?
+               ORDER BY c.id DESC""",
+            (thing_id,),
+        ).fetchall()
+        # Attach this thing's region (where it sits in the frame) per clip, when known.
+        boxes = {
+            r["clip_id"]: {"x": r["x"], "y": r["y"], "w": r["w"], "h": r["h"]}
+            for r in conn.execute(
+                "SELECT clip_id, x, y, w, h FROM clip_regions WHERE thing_id = ?", (thing_id,)
+            )
+        }
     clips = _decorate_clips([dict(r) for r in rows])
     for c in clips:
         c["region"] = boxes.get(c["id"])
@@ -108,9 +97,8 @@ def thing_clips(thing_id):
 
 @bp.post("/api/things/<int:thing_id>/pick-thumbnail")
 def pick_thing_thumbnail(thing_id):
-    conn = get_conn()
-    clip_id = _pick_thing_thumbnail(conn, thing_id)
-    conn.close()
+    with db_conn() as conn:
+        clip_id = _pick_thing_thumbnail(conn, thing_id)
     if clip_id is None:
         return {"error": "no local clips to choose a cover from"}, 404
     return jsonify({"thing_id": thing_id, "clip_id": clip_id})
@@ -120,21 +108,20 @@ def pick_thing_thumbnail(thing_id):
 def thing_thumbnail(thing_id):
     """Serve the thing's chosen cover keyframe, falling back to its newest matched
     local clip if no explicit pick has been made yet."""
-    conn = get_conn()
-    row = conn.execute("SELECT clip_id FROM thing_thumbs WHERE thing_id = ?", (thing_id,)).fetchone()
-    clip_id = row["clip_id"] if row else None
+    with db_conn() as conn:
+        row = conn.execute("SELECT clip_id FROM thing_thumbs WHERE thing_id = ?", (thing_id,)).fetchone()
+        clip_id = row["clip_id"] if row else None
+        if clip_id is None:
+            m = conn.execute(
+                """SELECT c.id FROM clips c
+                   JOIN clip_things ct ON ct.clip_id = c.id
+                   WHERE ct.thing_id = ? ORDER BY c.id DESC""",
+                (thing_id,),
+            ).fetchall()
     if clip_id is None:
-        m = conn.execute(
-            """SELECT c.id FROM clips c
-               JOIN clip_things ct ON ct.clip_id = c.id
-               WHERE ct.thing_id = ? ORDER BY c.id DESC""",
-            (thing_id,),
-        ).fetchall()
-        conn.close()
         for r in m:
             return clip_thumbnail(r["id"])
         return {"error": "no thumbnail"}, 404
-    conn.close()
     return clip_thumbnail(clip_id)
 
 
@@ -161,36 +148,34 @@ def faces_detect():
 @bp.get("/api/faces/groups")
 def faces_groups():
     """Named people + unnamed provisional clusters, each with a representative face."""
-    conn = get_conn()
     people = []
-    for p in conn.execute("SELECT id, name FROM people ORDER BY name COLLATE NOCASE"):
-        agg = conn.execute("SELECT COUNT(*) c FROM faces WHERE person_id = ?", (p["id"],)).fetchone()
-        rep = conn.execute(
-            "SELECT id FROM faces WHERE person_id = ? ORDER BY prob DESC LIMIT 1", (p["id"],)
-        ).fetchone()
-        people.append({"id": p["id"], "name": p["name"], "count": agg["c"],
-                       "rep_face": rep["id"] if rep else None})
     clusters = []
-    for row in conn.execute(
-        """SELECT cluster_id, COUNT(*) c FROM faces
-           WHERE person_id IS NULL AND cluster_id IS NOT NULL
-           GROUP BY cluster_id ORDER BY c DESC"""
-    ):
-        rep = conn.execute(
-            """SELECT id FROM faces WHERE person_id IS NULL AND cluster_id = ?
-               ORDER BY prob DESC LIMIT 1""", (row["cluster_id"],)
-        ).fetchone()
-        clusters.append({"cluster_id": row["cluster_id"], "count": row["c"],
-                         "rep_face": rep["id"] if rep else None})
-    conn.close()
+    with db_conn() as conn:
+        for p in conn.execute("SELECT id, name FROM people ORDER BY name COLLATE NOCASE"):
+            agg = conn.execute("SELECT COUNT(*) c FROM faces WHERE person_id = ?", (p["id"],)).fetchone()
+            rep = conn.execute(
+                "SELECT id FROM faces WHERE person_id = ? ORDER BY prob DESC LIMIT 1", (p["id"],)
+            ).fetchone()
+            people.append({"id": p["id"], "name": p["name"], "count": agg["c"],
+                           "rep_face": rep["id"] if rep else None})
+        for row in conn.execute(
+            """SELECT cluster_id, COUNT(*) c FROM faces
+               WHERE person_id IS NULL AND cluster_id IS NOT NULL
+               GROUP BY cluster_id ORDER BY c DESC"""
+        ):
+            rep = conn.execute(
+                """SELECT id FROM faces WHERE person_id IS NULL AND cluster_id = ?
+                   ORDER BY prob DESC LIMIT 1""", (row["cluster_id"],)
+            ).fetchone()
+            clusters.append({"cluster_id": row["cluster_id"], "count": row["c"],
+                             "rep_face": rep["id"] if rep else None})
     return jsonify({"people": people, "clusters": clusters})
 
 
 @bp.get("/api/faces/<int:face_id>/thumb")
 def face_thumb(face_id):
-    conn = get_conn()
-    row = conn.execute("SELECT thumb_path FROM faces WHERE id = ?", (face_id,)).fetchone()
-    conn.close()
+    with db_conn() as conn:
+        row = conn.execute("SELECT thumb_path FROM faces WHERE id = ?", (face_id,)).fetchone()
     if not row or not row["thumb_path"] or not Path(row["thumb_path"]).exists():
         return {"error": "not found"}, 404
     return send_file(row["thumb_path"])
@@ -204,51 +189,45 @@ def faces_name():
     name = (data.get("name") or "").strip()
     if not name:
         return {"error": "name is required"}, 400
-    conn = get_conn()
-    row = conn.execute("SELECT id FROM people WHERE lower(name) = lower(?)", (name,)).fetchone()
-    if row:
-        pid = row["id"]
-    else:
-        conn.execute("INSERT INTO people (name) VALUES (?)", (name,))
-        conn.commit()
-        pid = conn.execute("SELECT id FROM people WHERE name = ?", (name,)).fetchone()["id"]
+    with db_conn() as conn:
+        row = conn.execute("SELECT id FROM people WHERE lower(name) = lower(?)", (name,)).fetchone()
+        if row:
+            pid = row["id"]
+        else:
+            conn.execute("INSERT INTO people (name) VALUES (?)", (name,))
+            pid = conn.execute("SELECT id FROM people WHERE name = ?", (name,)).fetchone()["id"]
 
-    if data.get("cluster_id") is not None:
-        conn.execute(
-            "UPDATE faces SET person_id = ?, cluster_id = NULL WHERE cluster_id = ? AND person_id IS NULL",
-            (pid, data["cluster_id"]),
-        )
-    elif data.get("face_ids"):
-        ids = data["face_ids"]
-        ph = ",".join("?" * len(ids))
-        conn.execute(f"UPDATE faces SET person_id = ?, cluster_id = NULL WHERE id IN ({ph})",
-                     [pid, *ids])
-    conn.commit()
-    conn.close()
+        if data.get("cluster_id") is not None:
+            conn.execute(
+                "UPDATE faces SET person_id = ?, cluster_id = NULL WHERE cluster_id = ? AND person_id IS NULL",
+                (pid, data["cluster_id"]),
+            )
+        elif data.get("face_ids"):
+            ids = data["face_ids"]
+            ph = ",".join("?" * len(ids))
+            conn.execute(f"UPDATE faces SET person_id = ?, cluster_id = NULL WHERE id IN ({ph})",
+                         [pid, *ids])
     return {"status": "ok", "person_id": pid}
 
 
 @bp.delete("/api/people/<int:person_id>")
 def delete_person(person_id):
     """Un-name a person: their faces return to the unnamed pool and re-cluster."""
-    conn = get_conn()
-    conn.execute("DELETE FROM people WHERE id = ?", (person_id,))  # faces.person_id -> NULL
-    conn.commit()
-    _recluster_unnamed(conn)
-    conn.close()
+    with db_conn() as conn:
+        conn.execute("DELETE FROM people WHERE id = ?", (person_id,))  # faces.person_id -> NULL
+        _recluster_unnamed(conn)
     return {"status": "deleted"}
 
 
 @bp.get("/api/people/<int:person_id>/clips")
 def person_clips(person_id):
-    conn = get_conn()
-    rows = conn.execute(
-        """SELECT DISTINCT c.* FROM clips c
-           JOIN faces f ON f.clip_id = c.id
-           WHERE f.person_id = ? ORDER BY c.id DESC""",
-        (person_id,),
-    ).fetchall()
-    conn.close()
+    with db_conn() as conn:
+        rows = conn.execute(
+            """SELECT DISTINCT c.* FROM clips c
+               JOIN faces f ON f.clip_id = c.id
+               WHERE f.person_id = ? ORDER BY c.id DESC""",
+            (person_id,),
+        ).fetchall()
     return jsonify(_decorate_clips([dict(r) for r in rows]))
 
 
@@ -287,39 +266,35 @@ def search_semantic():
     campaign_id = (data.get("campaign") or "").strip()
     quality_intent, query = _quality_intent(query)
 
-    conn = get_conn()
-    if campaign_id:
-        vec_rows = conn.execute(
-            """SELECT e.clip_id, e.vector FROM clip_embeddings e
-               JOIN campaign_clips pc ON pc.clip_id = e.clip_id
-               WHERE pc.campaign_id = ?""",
-            (campaign_id,),
+    with db_conn() as conn:
+        if campaign_id:
+            vec_rows = conn.execute(
+                """SELECT e.clip_id, e.vector FROM clip_embeddings e
+                   JOIN campaign_clips pc ON pc.clip_id = e.clip_id
+                   WHERE pc.campaign_id = ?""",
+                (campaign_id,),
+            ).fetchall()
+        else:
+            vec_rows = conn.execute("SELECT clip_id, vector FROM clip_embeddings").fetchall()
+
+        if not vec_rows:
+            return jsonify({"results": [], "unindexed": True})
+
+        try:
+            qvec = semantic.embed(query)
+        except Exception as e:
+            return {"error": f"embedding failed: {e}"}, 502
+        ranked = semantic.rank(qvec, [(r["clip_id"], r["vector"]) for r in vec_rows], top_k)
+
+        scores = {cid: sc for cid, sc in ranked}
+        ids = [cid for cid, _ in ranked]
+        if not ids:
+            return jsonify({"results": []})
+        placeholders = ",".join("?" * len(ids))
+        rows = conn.execute(
+            f"SELECT * FROM clips WHERE id IN ({placeholders})", ids
         ).fetchall()
-    else:
-        vec_rows = conn.execute("SELECT clip_id, vector FROM clip_embeddings").fetchall()
-
-    if not vec_rows:
-        conn.close()
-        return jsonify({"results": [], "unindexed": True})
-
-    try:
-        qvec = semantic.embed(query)
-    except Exception as e:
-        conn.close()
-        return {"error": f"embedding failed: {e}"}, 502
-    ranked = semantic.rank(qvec, [(r["clip_id"], r["vector"]) for r in vec_rows], top_k)
-
-    scores = {cid: sc for cid, sc in ranked}
-    ids = [cid for cid, _ in ranked]
-    if not ids:
-        conn.close()
-        return jsonify({"results": []})
-    placeholders = ",".join("?" * len(ids))
-    rows = conn.execute(
-        f"SELECT * FROM clips WHERE id IN ({placeholders})", ids
-    ).fetchall()
-    membership = _campaign_membership(conn)
-    conn.close()
+        membership = _campaign_membership(conn)
 
     clips = _decorate_clips([dict(r) for r in rows], membership)
     for c in clips:
@@ -340,24 +315,19 @@ def search_semantic():
 
 @bp.post("/api/clips/<int:clip_id>/deep-index")
 def deep_index_endpoint(clip_id):
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
-    if not row:
-        conn.close()
-        return {"error": "not found"}, 404
-    path = find_media_file(row["file_stem"])
-    if not path:
-        conn.close()
-        return {"error": f"'{row['file_stem']}' not found in MEDIA_DIR"}, 404
-    if path.suffix.lower() in IMAGE_EXTS:
-        conn.close()
-        return {"error": "deep index applies to videos; use Analyze for photos"}, 400
-    try:
-        n = _deep_index_one(conn, clip_id, path)
-    except Exception as e:
-        conn.close()
-        return {"error": str(e)}, 502
-    conn.close()
+    with db_conn() as conn:
+        row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
+        if not row:
+            return {"error": "not found"}, 404
+        path = find_media_file(row["file_stem"])
+        if not path:
+            return {"error": f"'{row['file_stem']}' not found in MEDIA_DIR"}, 404
+        if path.suffix.lower() in IMAGE_EXTS:
+            return {"error": "deep index applies to videos; use Analyze for photos"}, 400
+        try:
+            n = _deep_index_one(conn, clip_id, path)
+        except Exception as e:
+            return {"error": str(e)}, 502
     return jsonify({"status": "ok", "segments": n})
 
 
@@ -376,85 +346,76 @@ def deep_index_all():
 
 @bp.post("/api/clips/<int:clip_id>/transcribe")
 def transcribe_clip(clip_id):
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
-    if not row:
-        conn.close()
-        return {"error": "not found"}, 404
-    path = find_media_file(row["file_stem"])
-    if not path:
-        conn.close()
-        return {"error": f"'{row['file_stem']}' not found in MEDIA_DIR"}, 404
+    with db_conn() as conn:
+        row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
+        if not row:
+            return {"error": "not found"}, 404
+        path = find_media_file(row["file_stem"])
+        if not path:
+            return {"error": f"'{row['file_stem']}' not found in MEDIA_DIR"}, 404
 
-    model = get_whisper_model()
-    result = model.transcribe(str(path))
-    transcript = result["text"].strip()
+        model = get_whisper_model()
+        result = model.transcribe(str(path))
+        transcript = result["text"].strip()
 
-    conn.execute("UPDATE clips SET transcript = ? WHERE id = ?", (transcript, clip_id))
-    _store_speech_segments(conn, clip_id, result)
-    conn.commit()
-    conn.close()
+        conn.execute("UPDATE clips SET transcript = ? WHERE id = ?", (transcript, clip_id))
+        _store_speech_segments(conn, clip_id, result)
     enqueue_embed(clip_id)  # transcript changed -> refresh semantic index
     return jsonify({"transcript": transcript, "segments": len(result.get("segments", []))})
 
 
 @bp.post("/api/clips/<int:clip_id>/analyze")
 def analyze_clip(clip_id):
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
-    if not row:
-        conn.close()
-        return {"error": "not found"}, 404
-    path = find_media_file(row["file_stem"])
-    if not path:
-        conn.close()
-        return {"error": f"'{row['file_stem']}' not found in MEDIA_DIR"}, 404
+    with db_conn() as conn:
+        row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
+        if not row:
+            return {"error": "not found"}, 404
+        path = find_media_file(row["file_stem"])
+        if not path:
+            return {"error": f"'{row['file_stem']}' not found in MEDIA_DIR"}, 404
 
-    # Stills have no timeline to seek into; a mid-clip -ss on a single-frame image
-    # yields no output (this is the HEIC/photo analyze bug). Only seek for video.
-    is_image = path.suffix.lower() in IMAGE_EXTS
-    duration = row["duration_s"] or 4.0
-    timestamp = min(2.0, duration / 2)
-    seek = [] if is_image else ["-ss", str(timestamp)]
-    with tempfile.TemporaryDirectory() as tmp:
-        frame_path = Path(tmp) / "frame.jpg"
-        subprocess.run(
-            [
-                "ffmpeg", "-y",
-                *seek, "-i", str(path),
-                "-frames:v", "1", str(frame_path),
-            ],
-            check=True, capture_output=True,
+        # Stills have no timeline to seek into; a mid-clip -ss on a single-frame image
+        # yields no output (this is the HEIC/photo analyze bug). Only seek for video.
+        is_image = path.suffix.lower() in IMAGE_EXTS
+        duration = row["duration_s"] or 4.0
+        timestamp = min(2.0, duration / 2)
+        seek = [] if is_image else ["-ss", str(timestamp)]
+        with tempfile.TemporaryDirectory() as tmp:
+            frame_path = Path(tmp) / "frame.jpg"
+            subprocess.run(
+                [
+                    "ffmpeg", "-y",
+                    *seek, "-i", str(path),
+                    "-frames:v", "1", str(frame_path),
+                ],
+                check=True, capture_output=True,
+            )
+            image_bytes = frame_path.read_bytes()
+
+        try:
+            analysis = _frame_analysis(image_bytes, _active_watchlist(conn))
+        except Exception as e:
+            return {"error": str(e)}, 502
+
+        # Merge, don't clobber: preserve any human-authored context and union the tags
+        # so a manual "describe" pass and the AI pass reinforce each other.
+        existing_tags = [t.strip() for t in (row["tags"] or "").split(",") if t.strip()]
+        merged_tags, seen = [], set()
+        for t in existing_tags + list(analysis.tags):
+            key = t.lower()
+            if key not in seen:
+                seen.add(key)
+                merged_tags.append(t)
+        tags_str = ", ".join(merged_tags)
+
+        # Keep an existing human description if there is one; otherwise take the AI's.
+        description = (row["description"] or "").strip() or analysis.description
+        category = analysis.category or (row["category"] or "")
+
+        conn.execute(
+            "UPDATE clips SET description = ?, category = ?, tags = ? WHERE id = ?",
+            (description, category, tags_str, clip_id),
         )
-        image_bytes = frame_path.read_bytes()
-
-    try:
-        analysis = _frame_analysis(image_bytes, _active_watchlist(conn))
-    except Exception as e:
-        conn.close()
-        return {"error": str(e)}, 502
-
-    # Merge, don't clobber: preserve any human-authored context and union the tags
-    # so a manual "describe" pass and the AI pass reinforce each other.
-    existing_tags = [t.strip() for t in (row["tags"] or "").split(",") if t.strip()]
-    merged_tags, seen = [], set()
-    for t in existing_tags + list(analysis.tags):
-        key = t.lower()
-        if key not in seen:
-            seen.add(key)
-            merged_tags.append(t)
-    tags_str = ", ".join(merged_tags)
-
-    # Keep an existing human description if there is one; otherwise take the AI's.
-    description = (row["description"] or "").strip() or analysis.description
-    category = analysis.category or (row["category"] or "")
-
-    conn.execute(
-        "UPDATE clips SET description = ?, category = ?, tags = ? WHERE id = ?",
-        (description, category, tags_str, clip_id),
-    )
-    conn.commit()
-    conn.close()
     enqueue_embed(clip_id)  # description/tags changed -> refresh semantic index
 
     stamp_result = _maybe_stamp(row["file_stem"], description=description,
@@ -481,22 +442,19 @@ def infer_things():
         inferred = infer_campaign_things("imported footage", context)
     except Exception as e:
         return {"error": str(e)}, 502
-    conn = get_conn()
     created = []
-    for t in inferred.things:
-        tid = _upsert_thing(conn, t.name, getattr(t, "kind", "") or "", getattr(t, "description", "") or "")
-        if tid:
-            created.append(t.name)
-    conn.commit()
-    conn.close()
+    with db_conn() as conn:
+        for t in inferred.things:
+            tid = _upsert_thing(conn, t.name, getattr(t, "kind", "") or "", getattr(t, "description", "") or "")
+            if tid:
+                created.append(t.name)
     return jsonify({"things": created})
 
 
 @bp.post("/api/suggest-content")
 def suggest_content_route():
-    conn = get_conn()
-    clips = [dict(row) for row in conn.execute("SELECT * FROM clips ORDER BY file_stem").fetchall()]
-    conn.close()
+    with db_conn() as conn:
+        clips = [dict(row) for row in conn.execute("SELECT * FROM clips ORDER BY file_stem").fetchall()]
     try:
         suggestions = suggest_content(clips)
     except Exception as e:
