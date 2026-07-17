@@ -26,8 +26,7 @@ function showThings() {
 // ---- analysis mode toggle: on-device (CLIP, free) vs Claude API ----
 async function loadAnalysisMode() {
   try {
-    const res = await fetch("/api/settings");
-    const s = await res.json();
+    const s = await api("/api/settings");
     const box = document.getElementById("on-device-toggle");
     box.checked = !!s.on_device_vision;
     renderAnalysisStatus(box.checked);
@@ -44,11 +43,7 @@ document.getElementById("on-device-toggle").addEventListener("change", async (e)
   const onDevice = e.target.checked;
   renderAnalysisStatus(onDevice);
   try {
-    await fetch("/api/settings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ on_device_vision: onDevice }),
-    });
+    await api("/api/settings", { method: "POST", body: JSON.stringify({ on_device_vision: onDevice }) });
   } catch {
     e.target.checked = !onDevice;  // revert on failure
     renderAnalysisStatus(!onDevice);
@@ -105,8 +100,7 @@ function renderClipCards(headText, clips) {
 }
 
 async function loadThings() {
-  const res = await fetch("/api/things");
-  _things = await res.json();
+  _things = await api("/api/things");
   renderThingsList();
 }
 
@@ -156,9 +150,8 @@ function renderThingsList() {
       pick.disabled = true;
       pick.classList.add("busy");
       try {
-        const res = await fetch(`/api/things/${t.id}/pick-thumbnail`, { method: "POST" });
-        if (res.ok) {
-          const { clip_id } = await res.json();
+        const { clip_id } = await api(`/api/things/${t.id}/pick-thumbnail`, { method: "POST" }).catch(() => ({}));
+        if (clip_id) {
           cover.classList.remove("empty");
           cover.src = `/api/clips/${clip_id}/thumbnail?v=${Date.now()}`;
         }
@@ -175,12 +168,8 @@ function renderThingsList() {
     toggle.title = t.active ? "Being watched for — click to pause" : "Paused — click to resume";
     toggle.onclick = async (e) => {
       e.stopPropagation();
-      await fetch(`/api/things/${t.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ active: !t.active }),
-      });
-      loadThings();
+      try { await api(`/api/things/${t.id}`, { method: "PATCH", body: JSON.stringify({ active: !t.active }) }); }
+      finally { loadThings(); }
     };
 
     const del = document.createElement("button");
@@ -190,7 +179,7 @@ function renderThingsList() {
     del.onclick = async (e) => {
       e.stopPropagation();
       if (!confirm(`Delete "${t.name}"? Its clip matches will be forgotten.`)) return;
-      await fetch(`/api/things/${t.id}`, { method: "DELETE" });
+      await api(`/api/things/${t.id}`, { method: "DELETE" });
       if (_selectedThingId === t.id) { _selectedThingId = null; renderThingClips(null, []); }
       loadThings();
     };
@@ -208,8 +197,7 @@ async function selectThing(thingId) {
   _selectedThingId = thingId;
   renderThingsList();
   const thing = _things.find((t) => t.id === thingId);
-  const res = await fetch(`/api/things/${thingId}/clips`);
-  const clips = await res.json();
+  const clips = await api(`/api/things/${thingId}/clips`);
   renderThingClips(thing, clips);
 }
 
@@ -284,16 +272,12 @@ document.getElementById("thing-add-form").addEventListener("submit", async (e) =
   btn.textContent = "Adding…";  // kind is inferred server-side, so this can take a moment
   try {
     // No `kind` sent — the server infers it from the name.
-    const res = await fetch("/api/things", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, description }),
-    });
-    const body = await res.json();
-    if (!res.ok) { alert(body.error || "Could not add that thing."); return; }
+    await api("/api/things", { method: "POST", body: JSON.stringify({ name, description }) });
     document.getElementById("thing-name").value = "";
     document.getElementById("thing-desc").value = "";
     loadThings();
+  } catch (err) {
+    alert(err.message || "Could not add that thing.");
   } finally {
     btn.disabled = false;
     btn.textContent = prevLabel;
@@ -317,18 +301,8 @@ document.getElementById("things-scan-btn").addEventListener("click", async () =>
   status.textContent = "";
   thingsProgress.classList.remove("hidden");
   try {
-    const res = await fetch("/api/things/scan", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    const started = await res.json();
-    if (!res.ok) throw new Error(started.error || res.statusText);
-
-    for (;;) {
-      const r = await fetch(`/api/import-jobs/${started.job_id}`);
-      const job = await r.json();
-      if (!r.ok) throw new Error(job.error || r.statusText);
+    const started = await api("/api/things/scan", { method: "POST", body: JSON.stringify({}) });
+    const results = await pollJob(started.job_id, (job) => {
       if (!job.total) {
         thingsBar.classList.add("indeterminate");
         thingsProgressLabel.textContent = "Preparing scan…";
@@ -340,18 +314,14 @@ document.getElementById("things-scan-btn").addEventListener("click", async () =>
         if (job.eta_s != null) bits.push(fmtTime(job.eta_s));
         thingsProgressLabel.textContent = bits.join(" · ");
       }
-      if (job.finished) {
-        const r0 = job.results && job.results[0];
-        if (r0 && r0.status === "scanned") {
-          status.textContent = `Scanned ${r0.clips} clip(s) · ${r0.new_matches} new match(es).`;
-        } else if (r0 && r0.error) {
-          status.textContent = r0.error;
-        } else {
-          status.textContent = "Scan complete.";
-        }
-        break;
-      }
-      await sleep(700);
+    });
+    const r0 = results && results[0];
+    if (r0 && r0.status === "scanned") {
+      status.textContent = `Scanned ${r0.clips} clip(s) · ${r0.new_matches} new match(es).`;
+    } else if (r0 && r0.error) {
+      status.textContent = r0.error;
+    } else {
+      status.textContent = "Scan complete.";
     }
     thingsProgress.classList.add("hidden");
     loadThings();
