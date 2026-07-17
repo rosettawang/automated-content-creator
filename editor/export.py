@@ -66,6 +66,34 @@ ASPECT_DIMS = {
     "4:5": (1080, 1350),
 }
 
+# Audio treatments an edit can carry (spec: specs/audio-design.md). Phase 1 renders
+# 'clean' (strip audio) and everything else as normalized ambient; 'music'/'voiceover'
+# keep their stored plan but export as ambient until Phases 2–3 land.
+AUDIO_MODES = ("ambient", "speech-led", "music", "voiceover", "clean")
+
+
+def _segment_audio_args(audio_mode: str, has_audio: bool) -> dict:
+    """The per-segment ffmpeg audio pieces for one treatment. Pure + string-only so the
+    filter-graph construction is unit-testable without rendering. Returns:
+      null_input : add a silent anullsrc input (a still / audioless clip)
+      maps       : the -map / -an args
+      filt       : the -af args (loudnorm to kill level jumps at cuts)
+      codec      : the audio codec args
+    Phase 1: 'clean' drops audio entirely; all other modes get loudnorm on real audio
+    (silence under stills is left untouched)."""
+    if audio_mode == "clean":
+        return {"null_input": False, "maps": ["-an"], "filt": [], "codec": []}
+    codec = ["-c:a", "aac", "-ar", "48000", "-ac", "2"]
+    if not has_audio:  # still/silent clip → silent stereo track, nothing to normalize
+        return {"null_input": True, "maps": ["-map", "1:a:0"], "filt": [], "codec": codec}
+    return {
+        "null_input": False,
+        "maps": ["-map", "0:a:0"],
+        # EBU R128 loudness normalization → consistent level across cuts.
+        "filt": ["-af", "loudnorm=I=-16:TP=-1.5:LRA=11"],
+        "codec": codec,
+    }
+
 
 def _kb_keys(item) -> tuple | None:
     """Return the Ken Burns END rect if fully set, else None."""
@@ -338,12 +366,14 @@ def _segment_cache_dir() -> Path:
     return d
 
 
-def _segment_cache_key(source, in_point, out_point, dims, vf, has_audio) -> str:
+def _segment_cache_key(source, in_point, out_point, dims, vf, has_audio, audio_treat="ambient") -> str:
     """A content key for one encoded segment. The `vf` string fully encodes the
-    crop/Ken-Burns/aspect geometry, so identical inputs -> identical bytes -> reuse.
-    A re-export of an unchanged timeline is then a series of cache hits + a concat."""
+    crop/Ken-Burns/aspect geometry, and `audio_treat` the audio treatment, so identical
+    inputs -> identical bytes -> reuse. A re-export of an unchanged timeline is then a
+    series of cache hits + a concat."""
     raw = repr((str(source), round(float(in_point), 4), round(float(out_point), 4),
-                tuple(dims), vf, bool(has_audio), EXPORT_FPS, _social_bitrate_args(dims)))
+                tuple(dims), vf, bool(has_audio), audio_treat,
+                EXPORT_FPS, _social_bitrate_args(dims)))
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
@@ -356,10 +386,13 @@ def _prune_segment_cache(keep: int = _SEGMENT_CACHE_MAX) -> None:
         p.unlink(missing_ok=True)
 
 
-def _run_export_job(job_id, name, explicit_aspect, dims, plan):
+def _run_export_job(job_id, name, explicit_aspect, dims, plan, audio_mode="ambient"):
     """Render the timeline to a social-normalized MP4 with live progress. `plan` is a
     list of self-contained item dicts (source path + in/out + crop/kb) so it needs no
-    request context. Mirrors the import-job pattern: total = segments + 1 concat step."""
+    request context. Mirrors the import-job pattern: total = segments + 1 concat step.
+    `audio_mode` picks the audio treatment (spec: specs/audio-design.md)."""
+    # Phase 1 renders 'clean' (no audio) vs everything-else (normalized ambient).
+    audio_treat = "clean" if audio_mode == "clean" else "ambient"
     region_conn = get_conn() if explicit_aspect else None
     output_path = None
     # Probe results are stable per source path for the life of a run; memoize so a
@@ -411,11 +444,13 @@ def _run_export_job(job_id, name, explicit_aspect, dims, plan):
                     )
 
                 has_audio = _src_audio(source)
+                aargs = _segment_audio_args(audio_treat, has_audio)
 
                 # Reuse an identically-encoded segment if we've rendered it before
-                # (unchanged clip + trim + framing on a re-export) — the expensive step.
+                # (unchanged clip + trim + framing + audio treatment) — the expensive step.
                 cached = _segment_cache_dir() / (
-                    _segment_cache_key(source, item["in_point"], item["out_point"], dims, vf, has_audio) + ".mp4")
+                    _segment_cache_key(source, item["in_point"], item["out_point"],
+                                       dims, vf, has_audio, audio_treat) + ".mp4")
                 if cached.exists():
                     segment_paths.append(cached)
                     _update_job(job_id, current=f"{source.name} ({i + 1}/{len(plan)}, cached)", done=i + 1)
@@ -423,15 +458,15 @@ def _run_export_job(job_id, name, explicit_aspect, dims, plan):
                 _update_job(job_id, current=f"{source.name} ({i + 1}/{len(plan)})")
 
                 cmd = ["ffmpeg", "-y", "-ss", str(item["in_point"]), "-i", str(source)]
-                if not has_audio:
+                if aargs["null_input"]:
                     cmd += ["-f", "lavfi", "-t", str(duration),
                             "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
                 cmd += ["-t", str(duration), "-vf", vf,
-                        "-map", "0:v:0", "-map", ("1:a:0" if not has_audio else "0:a:0"),
+                        "-map", "0:v:0", *aargs["maps"],
                         "-r", str(EXPORT_FPS), "-vsync", "cfr",
                         "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
                         *_social_bitrate_args(dims),
-                        "-c:a", "aac", "-ar", "48000", "-ac", "2",
+                        *aargs["filt"], *aargs["codec"],
                         "-video_track_timescale", "90000",
                         str(segment)]
                 _run_cancellable(job_id, cmd)

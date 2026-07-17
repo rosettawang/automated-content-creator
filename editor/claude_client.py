@@ -56,10 +56,36 @@ _ASPECT_INSTRUCTION = (
 )
 
 
+# How the edit should SOUND (spec: specs/audio-design.md). Same infer-from-wording
+# pattern as aspect; stored on the edit, overridable in the gear, changeable in chat.
+AudioMode = Literal["ambient", "speech-led", "music", "voiceover", "clean"]
+
+_AUDIO_INSTRUCTION = (
+    "Also set `audio_plan` (how the edit should SOUND):\n"
+    "- mode: 'speech-led' when the chosen clips have transcript/speech that carries the "
+    "story — then the in/out points MUST fall on sentence boundaries (use the speech "
+    "moments), never mid-word; 'music' or 'clean' for montage-style cuts with no spoken "
+    "story; 'voiceover' when the user asks for narration or the footage needs glue it "
+    "can't provide; 'ambient' otherwise. User wording ALWAYS wins ('with upbeat music' "
+    "-> music; 'no audio'/'silent'/'clean' -> clean; 'narrate it' -> voiceover).\n"
+    "- rationale: one short line explaining the choice (shown in the UI).\n"
+    "- vo_script: ONLY for voiceover — a script written to fit ~the total duration.\n"
+    "- music_mood: ONLY for music — a few mood/genre words to match a local track."
+)
+
+
+class AudioPlan(BaseModel):
+    mode: AudioMode = "ambient"
+    rationale: str = ""
+    vo_script: Optional[str] = None    # voiceover mode
+    music_mood: Optional[str] = None   # music mode
+
+
 class RoughCutPlan(BaseModel):
     concept: str
     selections: List[ClipSelection]
     aspect: AspectHint = None         # inferred output frame, or null when unstated
+    audio_plan: Optional[AudioPlan] = None   # inferred audio treatment
 
 
 class CropEdit(BaseModel):
@@ -72,6 +98,7 @@ class EditChatResult(BaseModel):
     reply: str                        # short, conversational summary of what changed
     selections: List[ClipSelection]   # the COMPLETE new timeline, in play order
     aspect: AspectHint = None         # set only when the instruction asks to reframe (e.g. "make it square")
+    audio_plan: Optional[AudioPlan] = None   # set only when the instruction changes the sound
     # Per-item framing changes: only for items the instruction asks to reframe
     # ("keep the oil bowl centered"). Empty when framing isn't mentioned. The exact
     # aspect-correct crop window is computed server-side from this center point.
@@ -138,7 +165,11 @@ def revise_edit(instruction: str, current_timeline: list[dict], clips: list[dict
         + _ASPECT_INSTRUCTION
         + " Here, set aspect ONLY when the instruction asks to reframe (e.g. \"make it "
         "square\", \"turn this vertical\"); otherwise null. When you do change it, say "
-        "so in your reply."
+        "so in your reply.\n\n"
+        + _AUDIO_INSTRUCTION
+        + " Here, set audio_plan ONLY when the instruction changes the sound (e.g. \"add "
+        "upbeat music\", \"make it a voiceover\", \"strip the audio\"); otherwise null. "
+        "When you do change it, say so in your reply."
         + framing_ctx
         + f"\n\nCURRENT TIMELINE (in order):\n{current}\n\n"
         f"CLIP CATALOG (available to pull from):\n{catalog}\n\n"
@@ -613,6 +644,7 @@ def generate_rough_cut(prompt: str, clips: list[dict]) -> RoughCutPlan:
         "first second on long handheld clips). Vary shot lengths to fit the content "
         "instead of giving every clip an identical duration.\n\n"
         + _ASPECT_INSTRUCTION + "\n\n"
+        + _AUDIO_INSTRUCTION + "\n\n"
         f"Clip catalog:\n{catalog}\n\n"
         f"Requested video: {prompt}"
     )

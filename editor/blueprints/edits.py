@@ -92,6 +92,16 @@ def update_edit(edit_id):
             return err(f"invalid aspect (use source/{'/'.join(ASPECT_DIMS)})", 400)
         fields.append("aspect = ?")
         values.append(aspect or "source")
+    if "audio_mode" in data:
+        mode = (data.get("audio_mode") or "ambient")
+        if mode not in AUDIO_MODES:
+            return err(f"invalid audio_mode (use {'/'.join(AUDIO_MODES)})", 400)
+        fields.append("audio_mode = ?")
+        values.append(mode)
+    for f in ("audio_rationale", "vo_script", "music_path"):
+        if f in data:
+            fields.append(f"{f} = ?")
+            values.append(data.get(f))
     if not fields:
         return err("nothing to update", 400)
     with db_conn() as conn:
@@ -150,10 +160,20 @@ def generate_into_edit(edit_id):
         if plan_aspect and (edit["aspect"] or "source") == "source":
             conn.execute("UPDATE edits SET aspect = ? WHERE id = ?", (plan_aspect, edit_id))
             aspect_inferred = True
+        # Fill the inferred audio treatment only if this edit hasn't got one yet.
+        ap = getattr(plan, "audio_plan", None)
+        audio_inferred = None
+        if ap and ap.mode in AUDIO_MODES and not (edit["audio_mode"] if "audio_mode" in edit.keys() else None):
+            conn.execute(
+                "UPDATE edits SET audio_mode = ?, audio_rationale = ?, vo_script = ? WHERE id = ?",
+                (ap.mode, ap.rationale or "", ap.vo_script, edit_id),
+            )
+            audio_inferred = ap.mode
         _apply_auto_framing(conn, edit_id)  # subject-track the newly appended items (NULL-crop only)
     return jsonify({
         "concept": plan.concept, "selections": [s.model_dump() for s in plan.selections],
         "aspect": plan_aspect if aspect_inferred else None, "aspect_inferred": aspect_inferred,
+        "audio_mode": audio_inferred, "audio_inferred": bool(audio_inferred),
     })
 
 
@@ -233,6 +253,14 @@ def chat_edit(edit_id):
         new_aspect = new_aspect if new_aspect in ASPECT_DIMS else None
         if new_aspect and new_aspect != (edit["aspect"] or "source"):
             conn.execute("UPDATE edits SET aspect = ? WHERE id = ?", (new_aspect, edit_id))
+        # Same for audio: the model returns audio_plan ONLY when the instruction changed
+        # the sound ("add music", "strip audio"), so a non-audio chat leaves it intact.
+        new_audio = getattr(result, "audio_plan", None)
+        if new_audio and new_audio.mode in AUDIO_MODES:
+            conn.execute(
+                "UPDATE edits SET audio_mode = ?, audio_rationale = ?, vo_script = ? WHERE id = ?",
+                (new_audio.mode, new_audio.rationale or "", new_audio.vo_script, edit_id),
+            )
         _apply_auto_framing(conn, edit_id)  # timeline was fully replaced; frame the fresh items
         # Then apply any chat-driven framing on top (sticky manual crops), overriding auto.
         _apply_framing_edits(conn, edit_id, getattr(result, "crops", None))
@@ -332,9 +360,20 @@ def generate_edit_from_scratch():
         concept = (getattr(plan, "concept", "") or "").strip()
         auto = concept or prompt
         name = (data.get("name") or "").strip() or (auto[:57] + ("…" if len(auto) > 57 else ""))
+        # Inferred audio treatment (spec: audio-design). An explicit gear choice on the
+        # request wins; else take the model's plan; else default ambient.
+        ap = getattr(plan, "audio_plan", None)
+        req_audio = (data.get("audio_mode") or "").strip()
+        if req_audio in AUDIO_MODES:
+            audio_mode, audio_rationale, vo_script = req_audio, "", None
+        elif ap and ap.mode in AUDIO_MODES:
+            audio_mode, audio_rationale, vo_script = ap.mode, (ap.rationale or ""), ap.vo_script
+        else:
+            audio_mode, audio_rationale, vo_script = "ambient", "", None
         cur = conn.execute(
-            "INSERT INTO edits (name, campaign_id, aspect) VALUES (?, ?, ?)",
-            (name, campaign_id, aspect),
+            "INSERT INTO edits (name, campaign_id, aspect, audio_mode, audio_rationale, vo_script) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (name, campaign_id, aspect, audio_mode, audio_rationale, vo_script),
         )
         edit_id = cur.lastrowid
         for i, sel in enumerate(plan.selections):
@@ -346,7 +385,7 @@ def generate_edit_from_scratch():
         _apply_auto_framing(conn, edit_id)  # subject-track framing when aspect != source
     return jsonify({
         "id": edit_id, "name": name, "campaign_id": campaign_id, "aspect": aspect,
-        "aspect_inferred": aspect_inferred,
+        "aspect_inferred": aspect_inferred, "audio_mode": audio_mode,
         "concept": plan.concept, "selections": [s.model_dump() for s in plan.selections],
     })
 
@@ -598,10 +637,11 @@ def export_campaign(edit_id):
     # The N ffmpeg re-encodes + concat can take a while on longer timelines, so run
     # them in a background job (same pattern as imports) and hand back a job_id the UI
     # polls — no request timeout, live progress.
+    audio_mode = (campaign["audio_mode"] if "audio_mode" in campaign.keys() else None) or "ambient"
     job_id = _new_job(f"Export · {campaign['name']}", "clip")
     threading.Thread(
         target=_run_export_job,
-        args=(job_id, campaign["name"], explicit_aspect, dims, plan),
+        args=(job_id, campaign["name"], explicit_aspect, dims, plan, audio_mode),
         daemon=True,
     ).start()
     return jsonify({"job_id": job_id})

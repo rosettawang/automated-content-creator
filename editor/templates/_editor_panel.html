@@ -33,6 +33,17 @@
             <option value="16:9">16:9 landscape</option>
           </select>
         </label>
+        <label class="settings-row" title="How the exported edit sounds">
+          <span class="settings-label">Audio</span>
+          <select id="audio-select">
+            <option value="ambient">Ambient (normalized)</option>
+            <option value="speech-led">Speech-led</option>
+            <option value="music">Music bed</option>
+            <option value="voiceover">Voiceover</option>
+            <option value="clean">Clean (no audio)</option>
+          </select>
+        </label>
+        <div id="audio-rationale" class="settings-substatus"></div>
         <div class="settings-row" title="Re-check every clip's file on disk; relink files that moved by content hash">
           <span class="settings-label">Media</span>
           <button id="verify-media-btn" type="button">Verify / relink</button>

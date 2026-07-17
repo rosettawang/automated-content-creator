@@ -427,6 +427,10 @@ async function loadTimeline() {
   timeline = edit.items;
   const aspectSel = document.getElementById("aspect-select");
   if (aspectSel) aspectSel.value = edit.aspect || "source";
+  const audioSel = document.getElementById("audio-select");
+  if (audioSel) audioSel.value = edit.audio_mode || "ambient";
+  const rat = document.getElementById("audio-rationale");
+  if (rat) rat.textContent = edit.audio_rationale || "";
   if (!timeline.some((i) => i.id === selectedItemId)) selectedItemId = null;
   rebuildSegments();
   renderTimeline();
@@ -455,6 +459,18 @@ document.getElementById("aspect-select").addEventListener("change", async (e) =>
     body: JSON.stringify({ aspect: e.target.value }),
   });
   if (typeof refreshCropOverlay === "function") refreshCropOverlay();
+});
+
+// Persist the audio treatment on the current edit (mirrors the aspect control).
+document.getElementById("audio-select").addEventListener("change", async (e) => {
+  if (!currentEditId) return;   // pending default for the next Generate
+  await api(`/api/edits/${currentEditId}`, {
+    method: "PUT",
+    body: JSON.stringify({ audio_mode: e.target.value }),
+  });
+  // A manual pick clears the model's rationale (it no longer explains the choice).
+  const rat = document.getElementById("audio-rationale");
+  if (rat) rat.textContent = "";
 });
 
 // ---- settings gear popover ----
