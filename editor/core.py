@@ -66,7 +66,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from flask import Flask, jsonify, request, send_file, render_template, Response
 
 
-from db import get_conn, init_db, stamp_file_metadata, exiftool_available
+from db import get_conn, db_conn, init_db, stamp_file_metadata, exiftool_available
 
 
 from claude_client import (

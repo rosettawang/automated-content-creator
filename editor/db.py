@@ -1,6 +1,7 @@
 import shutil
 import sqlite3
 import subprocess
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,6 +21,28 @@ def get_conn():
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA busy_timeout = 5000")
     return conn
+
+
+@contextmanager
+def db_conn():
+    """Per-operation connection that commits on a clean exit and ALWAYS closes.
+
+    Prefer this over the manual `conn = get_conn() … conn.close()` pattern in
+    request handlers and jobs: an exception between open and close otherwise leaks
+    the SQLite handle, and under waitress (many threads) leaked handles surface as
+    intermittent "database is locked". On a normal exit the pending transaction is
+    committed; on an exception it is left uncommitted (rolled back by close), and the
+    handle is closed either way.
+
+        with db_conn() as conn:
+            conn.execute(...)          # no explicit commit/close needed
+    """
+    conn = get_conn()
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------

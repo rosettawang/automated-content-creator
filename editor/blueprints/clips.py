@@ -9,14 +9,13 @@ def clip_regions(clip_id):
     """Where notable subjects sit in this clip's frame (normalized x,y,w,h), for
     aspect-aware cropping/reframing. `thing_id`/`thing_name` set when the region
     is a watched thing."""
-    conn = get_conn()
-    rows = conn.execute(
-        """SELECT cr.label, cr.x, cr.y, cr.w, cr.h, cr.thing_id, t.name AS thing_name
-           FROM clip_regions cr LEFT JOIN things t ON t.id = cr.thing_id
-           WHERE cr.clip_id = ? ORDER BY (cr.w * cr.h) DESC""",
-        (clip_id,),
-    ).fetchall()
-    conn.close()
+    with db_conn() as conn:
+        rows = conn.execute(
+            """SELECT cr.label, cr.x, cr.y, cr.w, cr.h, cr.thing_id, t.name AS thing_name
+               FROM clip_regions cr LEFT JOIN things t ON t.id = cr.thing_id
+               WHERE cr.clip_id = ? ORDER BY (cr.w * cr.h) DESC""",
+            (clip_id,),
+        ).fetchall()
     return jsonify([dict(r) for r in rows])
 
 
@@ -32,9 +31,8 @@ def regions_scan():
 
 @bp.get("/api/clips/<int:clip_id>/thumbnail")
 def clip_thumbnail(clip_id):
-    conn = get_conn()
-    row = conn.execute("SELECT file_stem FROM clips WHERE id = ?", (clip_id,)).fetchone()
-    conn.close()
+    with db_conn() as conn:
+        row = conn.execute("SELECT file_stem FROM clips WHERE id = ?", (clip_id,)).fetchone()
     if not row:
         return {"error": "not found"}, 404
     stem = row["file_stem"]
@@ -71,7 +69,7 @@ def clip_thumbnail(clip_id):
                 ],
                 check=True, capture_output=True,
             )
-        except Exception:
+        except subprocess.CalledProcessError:
             return {"error": "no thumbnail"}, 404
         if cached.exists():
             return send_file(cached)
@@ -83,19 +81,18 @@ def clip_thumbnail(clip_id):
 def list_clips():
     q = request.args.get("q", "").strip().lower()
     campaign_id = request.args.get("campaign", "").strip()
-    conn = get_conn()
-    if campaign_id:
-        rows = conn.execute(
-            """SELECT c.* FROM clips c
-               JOIN campaign_clips pc ON pc.clip_id = c.id
-               WHERE pc.campaign_id = ?
-               ORDER BY c.file_stem""",
-            (campaign_id,),
-        ).fetchall()
-    else:
-        rows = conn.execute("SELECT * FROM clips ORDER BY file_stem").fetchall()
-    membership = _campaign_membership(conn)
-    conn.close()
+    with db_conn() as conn:
+        if campaign_id:
+            rows = conn.execute(
+                """SELECT c.* FROM clips c
+                   JOIN campaign_clips pc ON pc.clip_id = c.id
+                   WHERE pc.campaign_id = ?
+                   ORDER BY c.file_stem""",
+                (campaign_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM clips ORDER BY file_stem").fetchall()
+        membership = _campaign_membership(conn)
     clips = [dict(r) for r in rows]
     if q:
         clips = [
@@ -113,13 +110,12 @@ def list_clips():
 @bp.get("/api/clips/geo")
 def clips_geo():
     """Clips that have GPS coordinates, for the map/heatmap view."""
-    conn = get_conn()
-    rows = conn.execute(
-        """SELECT id, file_stem, category, description, latitude, longitude
-           FROM clips
-           WHERE latitude IS NOT NULL AND longitude IS NOT NULL"""
-    ).fetchall()
-    conn.close()
+    with db_conn() as conn:
+        rows = conn.execute(
+            """SELECT id, file_stem, category, description, latitude, longitude
+               FROM clips
+               WHERE latitude IS NOT NULL AND longitude IS NOT NULL"""
+        ).fetchall()
     return jsonify([
         {
             "id": r["id"],
@@ -139,9 +135,8 @@ def clip_raw_metadata(clip_id):
       - db_row: the full SQLite row (the source of truth)
       - embedded: the media file's own XMP/EXIF tags, read via exiftool
     embedded is null when the file isn't local or exiftool isn't installed."""
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
-    conn.close()
+    with db_conn() as conn:
+        row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
     if not row:
         return {"error": "not found"}, 404
 
@@ -178,17 +173,16 @@ def clip_raw_metadata(clip_id):
 def clip_events(clip_id):
     """Timestamped events for a clip. Optional ?kind=speech|thing|action filter."""
     kind = request.args.get("kind", "").strip()
-    conn = get_conn()
-    if kind:
-        rows = conn.execute(
-            "SELECT * FROM clip_events WHERE clip_id = ? AND kind = ? ORDER BY t_start",
-            (clip_id, kind),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM clip_events WHERE clip_id = ? ORDER BY t_start", (clip_id,)
-        ).fetchall()
-    conn.close()
+    with db_conn() as conn:
+        if kind:
+            rows = conn.execute(
+                "SELECT * FROM clip_events WHERE clip_id = ? AND kind = ? ORDER BY t_start",
+                (clip_id, kind),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM clip_events WHERE clip_id = ? ORDER BY t_start", (clip_id,)
+            ).fetchall()
     return jsonify([dict(r) for r in rows])
 
 
@@ -198,19 +192,15 @@ def update_clip_metadata(clip_id):
     description/category/tags/context, plus optional stamp=true to embed it into
     the local media file's XMP/EXIF as well."""
     data = request.json or {}
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
-    if not row:
-        conn.close()
-        return {"error": "not found"}, 404
-
-    updates = {k: (data[k] or "").strip() for k in METADATA_FIELDS if k in data}
-    if updates:
-        sets = ", ".join(f"{k} = ?" for k in updates)
-        conn.execute(f"UPDATE clips SET {sets} WHERE id = ?", (*updates.values(), clip_id))
-        conn.commit()
-    merged = {k: updates.get(k, row[k] or "") for k in METADATA_FIELDS}
-    conn.close()
+    with db_conn() as conn:
+        row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
+        if not row:
+            return {"error": "not found"}, 404
+        updates = {k: (data[k] or "").strip() for k in METADATA_FIELDS if k in data}
+        if updates:
+            sets = ", ".join(f"{k} = ?" for k in updates)
+            conn.execute(f"UPDATE clips SET {sets} WHERE id = ?", (*updates.values(), clip_id))
+        merged = {k: updates.get(k, row[k] or "") for k in METADATA_FIELDS}
     if updates:
         enqueue_embed(clip_id)  # human edit -> refresh semantic index
 
@@ -233,19 +223,17 @@ def update_clip_metadata_bulk():
     if not updates:
         return {"error": "no metadata fields provided"}, 400
 
-    conn = get_conn()
     sets = ", ".join(f"{k} = ?" for k in updates)
     stamped = []
-    for cid in clip_ids:
-        row = conn.execute("SELECT * FROM clips WHERE id = ?", (cid,)).fetchone()
-        if not row:
-            continue
-        conn.execute(f"UPDATE clips SET {sets} WHERE id = ?", (*updates.values(), cid))
-        if data.get("stamp"):
-            merged = {k: updates.get(k, row[k] or "") for k in METADATA_FIELDS}
-            stamped.append({"clip_id": cid, **(_maybe_stamp(row["file_stem"], **merged) or {"skipped": "no local file"})})
-    conn.commit()
-    conn.close()
+    with db_conn() as conn:
+        for cid in clip_ids:
+            row = conn.execute("SELECT * FROM clips WHERE id = ?", (cid,)).fetchone()
+            if not row:
+                continue
+            conn.execute(f"UPDATE clips SET {sets} WHERE id = ?", (*updates.values(), cid))
+            if data.get("stamp"):
+                merged = {k: updates.get(k, row[k] or "") for k in METADATA_FIELDS}
+                stamped.append({"clip_id": cid, **(_maybe_stamp(row["file_stem"], **merged) or {"skipped": "no local file"})})
     for cid in clip_ids:
         enqueue_embed(cid)  # bulk human edit -> refresh semantic index
     return jsonify({"updated": len(clip_ids), "stamped": stamped})
@@ -257,9 +245,8 @@ def stamp_all():
     is mirrored into the files themselves (and travels with them)."""
     if not exiftool_available():
         return {"error": "exiftool not found on PATH -- install it (brew install exiftool)"}, 400
-    conn = get_conn()
-    rows = conn.execute("SELECT * FROM clips").fetchall()
-    conn.close()
+    with db_conn() as conn:
+        rows = conn.execute("SELECT * FROM clips").fetchall()
     stamped, skipped, failed = 0, 0, []
     for row in rows:
         path = find_media_file(row["file_stem"])
@@ -291,9 +278,8 @@ def export_metadata_xlsx():
     if not log_path.exists():
         return {"error": f"{log_path.name} not found"}, 404
 
-    conn = get_conn()
-    clips_by_stem = {r["file_stem"]: r for r in conn.execute("SELECT * FROM clips").fetchall()}
-    conn.close()
+    with db_conn() as conn:
+        clips_by_stem = {r["file_stem"]: r for r in conn.execute("SELECT * FROM clips").fetchall()}
 
     wb = openpyxl.load_workbook(log_path)
     ws = wb[sheet_name]
