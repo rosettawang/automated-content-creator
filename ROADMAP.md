@@ -44,6 +44,10 @@ Generation currently decides what you see, not what you hear — exports concate
     - Also from `editor-ux-papercuts`: ✅ program idle poster, Cuts newest-first + aspect badge, non-local tooltip copy. ⏳ still open: Cuts export-status + "Open folder" (needs a backend export record; desktop-only for folder open).
 13. Bitrate/length presets per destination (Reels vs Stories vs feed).
 
+## Priority 4.5 — Efficiency & DRY pass ✅ Shipped 2026-07-16
+
+From the 2026-07-13 code sweep. **Part A** ✅ `db_conn()` context manager adopted across every blueprint (no unguarded `get_conn()…close()` leaks under waitress; job workers stay manual for incremental commits); 20 silent `except: pass` swallows now log with context (`logging.basicConfig` wired into both entrypoints). **Part B** ✅ catalog N+1 removed (`_attach_moments` one `IN` query; `_decorate_clips` status O(1) via cache), `media_files._stem_index()` mtime-cached `find_media_file`, export ffprobe memoized + segment-encode cache (re-export of an unchanged edit = cache hits + concat). **Part C** ✅ shared `err()` + JSON errorhandler, `claude_client._parse()`, and `static/common.js` (`api`/`esc`/`pollJob`) prepended to every bundle. Tests: `test_perf.py` asserts `/api/clips` query count doesn't scale with clip count. ⏳ Tail: migrate the ~40 raw `fetch()` in library/campaigns/things to `api()` (incremental, per-panel UI check).
+
 ## Parallel work matrix
 
 Every spec in `specs/` declares which files it owns; two sessions may run concurrently iff their specs own disjoint files. Summary:
@@ -59,6 +63,7 @@ Every spec in `specs/` declares which files it owns; two sessions may run concur
 | `framing-and-provenance` | frontend, tests | its own other half | — (schema-migrations shipped) |
 | `social-publishing` | frontend, tests, data-hygiene | — | test-suite gates real posting |
 | `audio-design` | frontend, social-publishing | framing-and-provenance tail (both touch export.py) | sequenced after aspect-from-prompt (shipped) |
+| ~~`efficiency-pass`~~ (shipped) | — | — | — |
 
 `test-suite`, `schema-migrations`, `core-split`, and `aspect-from-prompt` are all shipped, so the remaining feature specs (`framing-and-provenance`, `social-publishing`) are unblocked — they no longer collide with an in-flight import-touching refactor.
 
