@@ -22,9 +22,8 @@ let editsByCampaign = {}; // campaign_id (or "" for unassigned) -> [edit, ...]
 let editingId = null; // null = creating, otherwise editing this campaign id
 
 async function loadCampaigns() {
-  const [pRes, eRes] = await Promise.all([fetch("/api/campaigns"), fetch("/api/edits")]);
-  allCampaigns = await pRes.json();
-  const edits = await eRes.json();
+  const [campaigns, edits] = await Promise.all([api("/api/campaigns"), api("/api/edits")]);
+  allCampaigns = campaigns;
   editsByCampaign = {};
   edits.forEach((e) => {
     const key = e.campaign_id != null ? String(e.campaign_id) : "";
@@ -105,7 +104,7 @@ function render() {
     delBtn.onclick = async (e) => {
       e.stopPropagation();
       if (!confirm(`Delete campaign "${p.name}"? Clips themselves are not deleted.`)) return;
-      await fetch(`/api/campaigns/${p.id}`, { method: "DELETE" });
+      await api(`/api/campaigns/${p.id}`, { method: "DELETE" });
       await loadCampaigns();
     };
 
@@ -156,23 +155,14 @@ saveBtn.addEventListener("click", async () => {
   try {
     if (editingId == null) {
       errorEl.textContent = "Creating campaign and inferring key things…";
-      const res = await fetch("/api/campaigns", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description }),
-      });
-      const created = await res.json();
+      const created = await api("/api/campaigns", { method: "POST", body: JSON.stringify({ name, description }) });
       closeDialog();
       await loadCampaigns();
       // Jump straight into the new campaign's drawer so the inferred things show.
       const full = allCampaigns.find((p) => p.id === created.id) || created;
       openDrawer(full);
     } else {
-      await fetch(`/api/campaigns/${editingId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description }),
-      });
+      await api(`/api/campaigns/${editingId}`, { method: "PUT", body: JSON.stringify({ name, description }) });
       closeDialog();
       await loadCampaigns();
     }
@@ -213,11 +203,7 @@ document.getElementById("cmp-context-save").addEventListener("click", async () =
   const context_doc = document.getElementById("cmp-context-doc").value;
   status.textContent = "Saving…";
   try {
-    await fetch(`/api/campaigns/${drawerCampaign.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ context_doc }),
-    });
+    await api(`/api/campaigns/${drawerCampaign.id}`, { method: "PUT", body: JSON.stringify({ context_doc }) });
     drawerCampaign.context_doc = context_doc;
     status.textContent = "Saved";
   } catch (err) {
@@ -241,8 +227,7 @@ document.addEventListener("keydown", (e) => {
 async function loadThings() {
   const list = document.getElementById("cmp-things-list");
   list.innerHTML = "<li class='muted'>Loading…</li>";
-  const res = await fetch(`/api/campaigns/${drawerCampaign.id}/things`);
-  const things = await res.json();
+  const things = await api(`/api/campaigns/${drawerCampaign.id}/things`);
   renderThings(things);
 }
 
@@ -276,7 +261,7 @@ function renderThings(things) {
     rm.textContent = "×";
     rm.title = "Remove from this campaign";
     rm.onclick = async () => {
-      await fetch(`/api/campaigns/${drawerCampaign.id}/things/${t.id}`, { method: "DELETE" });
+      await api(`/api/campaigns/${drawerCampaign.id}/things/${t.id}`, { method: "DELETE" });
       loadThings();
     };
 
@@ -295,9 +280,8 @@ async function editThing(t) {
   const name = prompt("Rename this thing:", t.name);
   if (name === null) return;
   const description = prompt("Hint to help spot it (optional):", t.description || "");
-  await fetch(`/api/things/${t.id}`, {
+  await api(`/api/things/${t.id}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name: name.trim() || t.name, description: (description || "").trim() }),
   });
   loadThings();
@@ -309,11 +293,7 @@ document.getElementById("cmp-thing-add-form").addEventListener("submit", async (
   const name = input.value.trim();
   if (!name) return;
   input.value = "";
-  await fetch(`/api/campaigns/${drawerCampaign.id}/things`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
-  });
+  await api(`/api/campaigns/${drawerCampaign.id}/things`, { method: "POST", body: JSON.stringify({ name }) });
   loadThings();
 });
 
@@ -321,8 +301,7 @@ document.getElementById("cmp-thing-add-form").addEventListener("submit", async (
 async function loadChat() {
   const log = document.getElementById("chat-log");
   log.innerHTML = "";
-  const res = await fetch(`/api/campaigns/${drawerCampaign.id}/chat`);
-  const msgs = await res.json();
+  const msgs = await api(`/api/campaigns/${drawerCampaign.id}/chat`);
   if (!msgs.length) {
     log.innerHTML = "<div class='chat-empty'>Ask anything about this campaign — ideas, "
       + "what footage you have, what to shoot next.</div>";
@@ -364,9 +343,8 @@ function appendRecommendation(rec) {
   btn.onclick = async () => {
     btn.disabled = true;
     try {
-      await fetch(`/api/campaigns/${drawerCampaign.id}/clips`, {
+      await api(`/api/campaigns/${drawerCampaign.id}/clips`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ clip_ids: rec.clips.map((c) => c.id) }),
       });
       btn.textContent = `Added ${n}`;
@@ -396,13 +374,10 @@ document.getElementById("cmp-chat-form").addEventListener("submit", async (e) =>
   appendChat("user", message);
   const thinking = appendChat("assistant", "…");
   try {
-    const res = await fetch(`/api/campaigns/${drawerCampaign.id}/chat`, {
+    const body = await api(`/api/campaigns/${drawerCampaign.id}/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message }),
     });
-    const body = await res.json();
-    if (!res.ok) throw new Error(body.error || res.statusText);
     thinking.textContent = body.reply;
     input.value = "";                    // clear only on success
     if (body.context_doc != null) setContextDoc(body.context_doc);
