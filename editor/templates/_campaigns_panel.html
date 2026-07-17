@@ -46,7 +46,17 @@
         <div id="drawer-title"></div>
         <div id="drawer-desc"></div>
       </div>
-      <button id="drawer-close" title="Close">&times;</button>
+      <div class="drawer-head-right">
+        <span id="cmp-dryrun-pill" class="pill hidden">dry-run on</span>
+        <button id="drawer-close" title="Close">&times;</button>
+      </div>
+    </div>
+
+    <div id="cmp-kpis">
+      <div class="kpi"><span class="kpi-label">Scheduled</span><span class="kpi-value" id="kpi-scheduled">—</span></div>
+      <div class="kpi"><span class="kpi-label">Published</span><span class="kpi-value" id="kpi-published">—</span></div>
+      <div class="kpi"><span class="kpi-label">Reach</span><span class="kpi-value" id="kpi-reach">—</span></div>
+      <div class="kpi"><span class="kpi-label">Spend</span><span class="kpi-value" id="kpi-spend">—</span></div>
     </div>
 
     <section id="drawer-context">
@@ -90,7 +100,30 @@
           <span id="cmp-post-status" class="section-hint"></span>
         </div>
       </form>
+
+      <div id="cmp-schedule-toggle">
+        <button type="button" id="cmp-view-list" class="on">List</button>
+        <button type="button" id="cmp-view-cal">Calendar</button>
+      </div>
       <ul id="cmp-posts-list"></ul>
+      <div id="cmp-posts-cal" class="hidden"></div>
+
+      <!-- Post detail: opens when a post is clicked (status, metrics, boost, actions). -->
+      <div id="cmp-post-detail" class="hidden">
+        <div class="detail-head">
+          <span id="cmp-detail-title"></span>
+          <button id="cmp-detail-close" title="Close">&times;</button>
+        </div>
+        <div id="cmp-detail-metrics"></div>
+        <div id="cmp-detail-actions"></div>
+      </div>
+    </section>
+
+    <section id="drawer-learn">
+      <h3>Learn
+        <button id="cmp-metrics-refresh" type="button" title="Fetch latest metrics">Refresh metrics</button>
+      </h3>
+      <div id="cmp-learn-body"></div>
     </section>
 
     <section id="drawer-chat">

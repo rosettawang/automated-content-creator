@@ -10,8 +10,11 @@ import logging
 from flask import Blueprint
 from core import *  # jsonify, request, db_conn, …
 
+import threading
+
 from social.base import PLATFORMS, dry_run_enabled
 from social.scheduler import enqueue_publish
+from social.analytics import ingest_metrics, campaign_metrics_summary
 
 log = logging.getLogger("editor.blueprints.publishing")
 
@@ -152,6 +155,20 @@ def cancel_post(post_id):
             (_now_iso(), post_id),
         )
     return jsonify({"status": "cancelled"})
+
+
+@bp.post("/api/campaigns/<int:campaign_id>/metrics/refresh")
+def refresh_metrics(campaign_id):
+    """Kick off the metrics-ingestion job for this campaign's published posts."""
+    threading.Thread(target=ingest_metrics, args=(campaign_id,), daemon=True).start()
+    return jsonify({"status": "started"})
+
+
+@bp.get("/api/campaigns/<int:campaign_id>/summary")
+def campaign_summary(campaign_id):
+    """The Learn card / recommendation summary — a pure roll-up of latest metrics."""
+    with db_conn() as conn:
+        return jsonify(campaign_metrics_summary(conn, campaign_id))
 
 
 @bp.post("/api/campaigns/<int:campaign_id>/arm")

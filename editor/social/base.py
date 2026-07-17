@@ -26,12 +26,23 @@ def dry_run_enabled() -> bool:
 
 @runtime_checkable
 class Adapter(Protocol):
-    """One platform's publish path. `publish` takes a post dict (a `posts` row as a
-    plain dict) and returns the platform's external post id, or raises on failure.
-    Implementations MUST treat a repeat of the same `idempotency_key` as a no-op."""
+    """One platform's integration. All Composio calls live inside implementations, so
+    a Composio API change touches only `social/`.
+
+    - `publish(post)`   → external post id, or raises. MUST treat a repeat of the same
+                          `idempotency_key` as a no-op (never double-post).
+    - `fetch_metrics(post)` → a dict of the metric columns (impressions/reach/likes/…),
+                          for a published post. Read by social-analytics.
+    - `verify_connection()` → True if the connected account is usable (a connect-UI
+                          pre-flight). Raises/returns False with a reason otherwise.
+    """
     platform: str
 
     def publish(self, post: dict) -> str: ...
+
+    def fetch_metrics(self, post: dict) -> dict: ...
+
+    def verify_connection(self) -> bool: ...
 
 
 _REGISTRY: dict[str, Adapter] = {}
@@ -62,6 +73,25 @@ class DryRunAdapter:
         }
         log.info("SOCIAL DRY-RUN publish → %s", json.dumps(payload, ensure_ascii=False))
         return f"dryrun-{self.platform}-{post.get('id')}"
+
+    def fetch_metrics(self, post: dict) -> dict:
+        """Deterministic synthetic metrics so the analytics loop (ingestion,
+        summaries, recommendations) is fully exercisable without a live account.
+        Seeded off the post id so numbers are stable per post but vary across posts."""
+        seed = int(post.get("id") or 0)
+        base = 500 + (seed * 137) % 4000
+        return {
+            "impressions": base * 3,
+            "reach": base * 2,
+            "likes": base // 4,
+            "comments": base // 40,
+            "shares": base // 60,
+            "saves": base // 20,
+            "raw": json.dumps({"dry_run": True, "seed": seed}),
+        }
+
+    def verify_connection(self) -> bool:
+        return True
 
 
 def get_adapter(platform: str) -> Adapter:

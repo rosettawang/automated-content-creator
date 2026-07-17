@@ -429,6 +429,17 @@ class CampaignChatResult(BaseModel):
     recommend_reason: Optional[str] = None       # one line explaining the recommendation
 
 
+def _format_metrics_summary(summary: dict | None) -> str:
+    """A compact 'what's working' block for the recommendation prompts. Empty string
+    when there's no metrics data yet (keeps the prompt clean)."""
+    if not summary or not summary.get("has_data"):
+        return ""
+    lines = [summary.get("headline", "")]
+    for tp in summary.get("top_posts", [])[:3]:
+        lines.append(f"  • {tp['platform']}: “{tp['label']}” — {tp['reach']:,} reach, {tp['saves']} saves")
+    return "\n\nPERFORMANCE SO FAR (use this to recommend what to make next):\n" + "\n".join(lines)
+
+
 def campaign_chat(
     campaign: dict,
     things: list[dict],
@@ -436,6 +447,7 @@ def campaign_chat(
     catalog: list[dict],
     history: list[dict],
     user_message: str,
+    metrics_summary: dict | None = None,
 ) -> CampaignChatResult:
     """Assist with ONE campaign. Grounded in its description + evolving context doc,
     its watched things, the clips already in it, and the FULL clip catalog (so it can
@@ -471,6 +483,7 @@ def campaign_chat(
         f"Watched things:\n{watch}\n\n"
         f"Clips ALREADY in this campaign:\n{have}\n\n"
         f"FULL CLIP CATALOG (recommend_clip_ids must come from here):\n{all_clips}"
+        + _format_metrics_summary(metrics_summary)
     )
     messages = [{"role": m["role"], "content": m["content"]} for m in history]
     messages.append({"role": "user", "content": user_message})

@@ -409,14 +409,81 @@ function initPostPlatforms() {
   });
 }
 
+let cmpPosts = [];      // last-loaded posts for this campaign
+let cmpCalView = false;  // false = list, true = calendar
+
 async function loadPosts() {
   initPostPlatforms();
   if (!drawerCampaign) return;
   const list = document.getElementById("cmp-posts-list");
   list.innerHTML = "<li class='muted'>Loading…</li>";
-  const posts = await api(`/api/campaigns/${drawerCampaign.id}/posts`);
+  const [posts, summary] = await Promise.all([
+    api(`/api/campaigns/${drawerCampaign.id}/posts`),
+    api(`/api/campaigns/${drawerCampaign.id}/summary`).catch(() => ({})),
+  ]);
+  cmpPosts = posts;
+  renderKpis(posts, summary);
   renderPosts(posts);
+  renderCalendar(posts);
+  renderLearn(summary);
 }
+
+function renderLearn(summary) {
+  const body = document.getElementById("cmp-learn-body");
+  if (!summary || !summary.has_data) {
+    body.innerHTML = "<p class='muted'>" +
+      escapeText((summary && summary.headline) || "No metrics yet — publish, then Refresh metrics.") +
+      "</p>";
+    return;
+  }
+  const tops = (summary.top_posts || []).map((t) =>
+    `<li><span class="learn-plat">${escapeText(t.platform)}</span> ` +
+    `<span class="learn-label">${escapeText(t.label || "(untitled)")}</span> ` +
+    `<span class="learn-reach">${fmtCount(t.reach)} reach</span></li>`).join("");
+  body.innerHTML =
+    `<p class="learn-headline">${escapeText(summary.headline)}</p>` +
+    (tops ? `<ul class="learn-tops">${tops}</ul>` : "") +
+    `<div class="learn-actions"><button id="cmp-plan-shoot" type="button">Plan next shoot</button></div>`;
+  // "Plan next shoot" seeds the chat with a recommendation ask (grounded in metrics).
+  const plan = document.getElementById("cmp-plan-shoot");
+  if (plan) plan.onclick = () => {
+    const input = document.getElementById("cmp-chat-input");
+    input.value = "Based on how these posts performed, what should I shoot and post next?";
+    document.getElementById("cmp-chat-form").dispatchEvent(new Event("submit", {cancelable:true, bubbles:true}));
+  };
+}
+
+document.getElementById("cmp-metrics-refresh").addEventListener("click", async () => {
+  if (!drawerCampaign) return;
+  const btn = document.getElementById("cmp-metrics-refresh");
+  btn.disabled = true; btn.textContent = "Fetching…";
+  try {
+    await api(`/api/campaigns/${drawerCampaign.id}/metrics/refresh`, { method: "POST" });
+    setTimeout(() => { loadPosts(); btn.disabled = false; btn.textContent = "Refresh metrics"; }, 1200);
+  } catch (err) {
+    btn.disabled = false; btn.textContent = "Refresh metrics";
+  }
+});
+
+function fmtCount(n) {
+  if (n == null) return "—";
+  if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k";
+  return String(n);
+}
+
+function renderKpis(posts, summary) {
+  const scheduled = posts.filter((p) => p.status === "scheduled").length;
+  const published = posts.filter((p) => p.status === "published").length;
+  document.getElementById("kpi-scheduled").textContent = scheduled;
+  document.getElementById("kpi-published").textContent = published;
+  document.getElementById("kpi-reach").textContent = fmtCount(summary && summary.total_reach);
+  const spend = summary && summary.total_spend;
+  document.getElementById("kpi-spend").textContent = spend ? `$${Math.round(spend)}` : "$0";
+  // Dry-run pill: reflect whatever the last create/arm call reported.
+  const pill = document.getElementById("cmp-dryrun-pill");
+  pill.classList.toggle("hidden", cmpDryRun === false);
+}
+let cmpDryRun = true;  // updated from create/arm responses
 
 const POST_STATUS = {
   draft: "Draft", scheduled: "Scheduled", claimed: "Publishing…",
@@ -456,15 +523,119 @@ function renderPosts(posts) {
       cancel.className = "post-cancel";
       cancel.textContent = "×";
       cancel.title = "Cancel this post";
-      cancel.onclick = async () => {
+      cancel.onclick = async (e) => {
+        e.stopPropagation();
         await api(`/api/posts/${p.id}/cancel`, { method: "POST" });
         loadPosts();
       };
       li.appendChild(cancel);
     }
+    li.onclick = () => openPostDetail(p.id);
     list.appendChild(li);
   });
 }
+
+// ---- calendar view (current month; post chips on their day) ----
+function renderCalendar(posts) {
+  const cal = document.getElementById("cmp-posts-cal");
+  cal.innerHTML = "";
+  const now = new Date();
+  const year = now.getFullYear(), month = now.getMonth();
+  const first = new Date(year, month, 1);
+  const startDow = (first.getDay() + 6) % 7;  // Mon=0
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].forEach((d) => {
+    const h = document.createElement("div"); h.className = "cal-dow"; h.textContent = d; cal.appendChild(h);
+  });
+  for (let i = 0; i < startDow; i++) cal.appendChild(Object.assign(document.createElement("div"), { className: "cal-day empty" }));
+
+  // Bucket posts by day-of-month (this month only).
+  const byDay = {};
+  posts.forEach((p) => {
+    const raw = p.published_at || p.scheduled_at;
+    if (!raw) return;
+    const d = new Date(raw);
+    if (isNaN(d) || d.getFullYear() !== year || d.getMonth() !== month) return;
+    (byDay[d.getDate()] = byDay[d.getDate()] || []).push(p);
+  });
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const cell = document.createElement("div");
+    cell.className = "cal-day" + (day === now.getDate() ? " today" : "");
+    const num = document.createElement("div"); num.className = "cal-num"; num.textContent = day;
+    cell.appendChild(num);
+    (byDay[day] || []).forEach((p) => {
+      const chip = document.createElement("div");
+      chip.className = `cal-chip post-${p.status}`;
+      chip.textContent = `${p.platform} ${(p.caption || "").slice(0, 12)}`;
+      chip.title = p.caption || p.platform;
+      chip.onclick = () => openPostDetail(p.id);
+      cell.appendChild(chip);
+    });
+    cal.appendChild(cell);
+  }
+}
+
+document.getElementById("cmp-view-list").addEventListener("click", () => setScheduleView(false));
+document.getElementById("cmp-view-cal").addEventListener("click", () => setScheduleView(true));
+
+function setScheduleView(calendar) {
+  cmpCalView = calendar;
+  document.getElementById("cmp-posts-list").classList.toggle("hidden", calendar);
+  document.getElementById("cmp-posts-cal").classList.toggle("hidden", !calendar);
+  document.getElementById("cmp-view-list").classList.toggle("on", !calendar);
+  document.getElementById("cmp-view-cal").classList.toggle("on", calendar);
+}
+
+// ---- post detail (metrics / boost / actions) ----
+async function openPostDetail(postId) {
+  const panel = document.getElementById("cmp-post-detail");
+  const metricsEl = document.getElementById("cmp-detail-metrics");
+  const actionsEl = document.getElementById("cmp-detail-actions");
+  panel.classList.remove("hidden");
+  document.getElementById("cmp-detail-title").textContent = "Loading…";
+  metricsEl.innerHTML = ""; actionsEl.innerHTML = "";
+  const p = await api(`/api/posts/${postId}`);
+  document.getElementById("cmp-detail-title").textContent =
+    `${p.platform} · ${POST_STATUS[p.status] || p.status}`;
+
+  const m = p.latest_metrics;
+  const tiles = [];
+  if (m) {
+    tiles.push(["Reach", fmtCount(m.reach)], ["Saves", fmtCount(m.saves)],
+               ["Likes", fmtCount(m.likes)], ["Comments", fmtCount(m.comments)]);
+  }
+  if (p.boost_spend != null || p.boost_budget != null) {
+    tiles.push(["Boost", `$${Math.round(p.boost_spend || 0)}${p.boost_budget ? ` of $${Math.round(p.boost_budget)}` : ""}`]);
+  }
+  if (!tiles.length) {
+    metricsEl.innerHTML = "<div class='detail-empty'>No metrics yet — use “Refresh metrics”.</div>";
+  } else {
+    metricsEl.innerHTML = tiles.map(([l, v]) =>
+      `<div class="detail-metric"><span class="dm-label">${l}</span><span class="dm-value">${escapeText(String(v))}</span></div>`).join("");
+  }
+  if (p.error) {
+    metricsEl.innerHTML += `<div class="detail-error">${escapeText(p.error)}</div>`;
+  }
+  if (p.edit_id) {
+    const btn = document.createElement("button");
+    btn.className = "detail-act";
+    btn.textContent = "Open cut in editor";
+    btn.onclick = () => postToStudio({ studio: "open", panel: "editor" }) || (window.location = `/?edit=${p.edit_id}`);
+    actionsEl.appendChild(btn);
+  }
+}
+
+function postToStudio(msg) {
+  // In the single-doc studio a same-window message reaches the editor panel; standalone it's a harmless no-op.
+  try { window.postMessage(msg, "*"); } catch (_) {}
+  return false;
+}
+
+document.getElementById("cmp-detail-close").addEventListener("click", () => {
+  document.getElementById("cmp-post-detail").classList.add("hidden");
+});
 
 // Shared create path for both "Post now" and "Schedule".
 async function submitPost({ schedule }) {
@@ -493,6 +664,7 @@ async function submitPost({ schedule }) {
     const res = await api(`/api/campaigns/${drawerCampaign.id}/posts`, {
       method: "POST", body: JSON.stringify(body),
     });
+    if (res.dry_run != null) cmpDryRun = res.dry_run;
     status.textContent = schedule
       ? "Scheduled."
       : (res.dry_run ? "Queued (dry run — nothing sent)" : "Queued");

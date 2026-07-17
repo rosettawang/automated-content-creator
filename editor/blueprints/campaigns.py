@@ -241,8 +241,14 @@ def campaign_chat_send(campaign_id):
             (campaign_id,),
         ).fetchall()]
 
+        # Recommendations loop: fold in how this campaign's posts have performed so
+        # the chat can ground "make more of X" in real reach/saves (social-analytics E).
+        from social.analytics import campaign_metrics_summary
+        metrics_summary = campaign_metrics_summary(conn, campaign_id)
+
         try:
-            result = campaign_chat(dict(campaign), things, in_campaign, catalog, history, message)
+            result = campaign_chat(dict(campaign), things, in_campaign, catalog, history,
+                                   message, metrics_summary=metrics_summary)
         except Exception as e:
             return err(str(e), 502)
 
