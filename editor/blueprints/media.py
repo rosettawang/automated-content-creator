@@ -51,46 +51,44 @@ def import_files():
         return {"error": "no files provided"}, 400
 
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = get_conn()
     results = []
-    for f in files:
-        name = Path(f.filename or "").name  # strip any directory components (path-traversal guard)
-        if not name:
-            results.append({"filename": f.filename, "status": "error", "error": "invalid filename"})
-            continue
-
-        # A zip is a container: extract its media into MEDIA_DIR and register each,
-        # then discard the archive itself rather than treating it as a clip.
-        if name.lower().endswith(".zip"):
-            with tempfile.TemporaryDirectory() as tmp:
-                tmp_zip = Path(tmp) / name
-                try:
-                    f.save(str(tmp_zip))
-                    media_paths, skipped = extract_media_from_zip(tmp_zip, MEDIA_DIR)
-                except zipfile.BadZipFile:
-                    results.append({"filename": name, "status": "error", "error": "not a valid zip"})
-                    continue
-                except Exception as e:
-                    results.append({"filename": name, "status": "error", "error": str(e)})
-                    continue
-            if not media_paths:
-                results.append({"filename": name, "status": "error",
-                                "error": "no media files found inside the zip"})
+    with db_conn() as conn:
+        for f in files:
+            name = Path(f.filename or "").name  # strip any directory components (path-traversal guard)
+            if not name:
+                results.append({"filename": f.filename, "status": "error", "error": "invalid filename"})
                 continue
-            for path in media_paths:
-                results.append(register_clip_file(conn, path, source_kind="zip"))
-            continue
 
-        dest = _unique_dest(MEDIA_DIR, name)
-        try:
-            f.save(str(dest))
-        except Exception as e:
-            results.append({"filename": name, "status": "error", "error": str(e)})
-            continue
-        res = register_clip_file(conn, dest, source_kind="upload")
-        results.append(res)
-    conn.commit()
-    conn.close()
+            # A zip is a container: extract its media into MEDIA_DIR and register each,
+            # then discard the archive itself rather than treating it as a clip.
+            if name.lower().endswith(".zip"):
+                with tempfile.TemporaryDirectory() as tmp:
+                    tmp_zip = Path(tmp) / name
+                    try:
+                        f.save(str(tmp_zip))
+                        media_paths, skipped = extract_media_from_zip(tmp_zip, MEDIA_DIR)
+                    except zipfile.BadZipFile:
+                        results.append({"filename": name, "status": "error", "error": "not a valid zip"})
+                        continue
+                    except Exception as e:
+                        results.append({"filename": name, "status": "error", "error": str(e)})
+                        continue
+                if not media_paths:
+                    results.append({"filename": name, "status": "error",
+                                    "error": "no media files found inside the zip"})
+                    continue
+                for path in media_paths:
+                    results.append(register_clip_file(conn, path, source_kind="zip"))
+                continue
+
+            dest = _unique_dest(MEDIA_DIR, name)
+            try:
+                f.save(str(dest))
+            except Exception as e:
+                results.append({"filename": name, "status": "error", "error": str(e)})
+                continue
+            res = register_clip_file(conn, dest, source_kind="upload")
+            results.append(res)
     return jsonify({"results": results})
 
 
@@ -116,77 +114,73 @@ def import_local_paths():
         return {"error": "no paths provided"}, 400
 
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = get_conn()
     results = []
-    for raw in paths:
-        src = Path(raw).expanduser()
-        name = src.name
-        if not src.is_file():
-            results.append({"filename": name, "status": "error", "error": "file not found"})
-            continue
-
-        suffix = src.suffix.lower()
-
-        # A zip is a container: extract its media into MEDIA_DIR, register each,
-        # then (on move) delete the source archive.
-        if suffix == ".zip":
-            try:
-                media_paths, _skipped = extract_media_from_zip(src, MEDIA_DIR)
-            except zipfile.BadZipFile:
-                results.append({"filename": name, "status": "error", "error": "not a valid zip"})
+    with db_conn() as conn:
+        for raw in paths:
+            src = Path(raw).expanduser()
+            name = src.name
+            if not src.is_file():
+                results.append({"filename": name, "status": "error", "error": "file not found"})
                 continue
+
+            suffix = src.suffix.lower()
+
+            # A zip is a container: extract its media into MEDIA_DIR, register each,
+            # then (on move) delete the source archive.
+            if suffix == ".zip":
+                try:
+                    media_paths, _skipped = extract_media_from_zip(src, MEDIA_DIR)
+                except zipfile.BadZipFile:
+                    results.append({"filename": name, "status": "error", "error": "not a valid zip"})
+                    continue
+                except Exception as e:
+                    results.append({"filename": name, "status": "error", "error": str(e)})
+                    continue
+                if not media_paths:
+                    results.append({"filename": name, "status": "error",
+                                    "error": "no media files found inside the zip"})
+                    continue
+                for path in media_paths:
+                    res = register_clip_file(conn, path, source_kind="zip")
+                    res["moved"] = delete_originals
+                    results.append(res)
+                if delete_originals:
+                    try:
+                        src.unlink()
+                    except Exception:
+                        pass  # extraction already succeeded; a leftover zip is harmless
+                continue
+
+            if suffix not in MEDIA_EXTS:
+                results.append({"filename": name, "status": "error",
+                                "error": f"unsupported file type ({suffix or 'no extension'})"})
+                continue
+
+            dest = _unique_dest(MEDIA_DIR, name)
+            try:
+                shutil.copy2(src, dest)
             except Exception as e:
                 results.append({"filename": name, "status": "error", "error": str(e)})
                 continue
-            if not media_paths:
-                results.append({"filename": name, "status": "error",
-                                "error": "no media files found inside the zip"})
-                continue
-            for path in media_paths:
-                res = register_clip_file(conn, path, source_kind="zip")
-                res["moved"] = delete_originals
-                results.append(res)
-            if delete_originals:
+
+            res = register_clip_file(conn, dest, source_kind="local")
+            # Only delete the original once the copy is safely in the library. On a
+            # content-duplicate, register_clip_file removes our copy but the bytes are
+            # already stored under the existing clip -- deleting the original is still safe.
+            if delete_originals and res.get("status") != "error":
                 try:
                     src.unlink()
                 except Exception:
-                    pass  # extraction already succeeded; a leftover zip is harmless
-            continue
-
-        if suffix not in MEDIA_EXTS:
-            results.append({"filename": name, "status": "error",
-                            "error": f"unsupported file type ({suffix or 'no extension'})"})
-            continue
-
-        dest = _unique_dest(MEDIA_DIR, name)
-        try:
-            shutil.copy2(src, dest)
-        except Exception as e:
-            results.append({"filename": name, "status": "error", "error": str(e)})
-            continue
-
-        res = register_clip_file(conn, dest, source_kind="local")
-        # Only delete the original once the copy is safely in the library. On a
-        # content-duplicate, register_clip_file removes our copy but the bytes are
-        # already stored under the existing clip -- deleting the original is still safe.
-        if delete_originals and res.get("status") != "error":
-            try:
-                src.unlink()
-            except Exception:
-                pass
-        res["moved"] = delete_originals
-        results.append(res)
-
-    conn.commit()
-    conn.close()
+                    pass
+            res["moved"] = delete_originals
+            results.append(res)
     return jsonify({"results": results})
 
 
 @bp.get("/api/clips/<int:clip_id>/media")
 def clip_media(clip_id):
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
-    conn.close()
+    with db_conn() as conn:
+        row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
     if not row:
         return {"error": "not found"}, 404
     status, resolved = clip_media_status(row)
@@ -222,9 +216,8 @@ def pull_clip(clip_id):
     per-file URL, so a photos clip re-fetches its whole album and relinks by stem."""
     if MEDIA_DIR is None:
         return {"error": "MEDIA_DIR is not set -- restart the app with MEDIA_DIR=/path/to/folder"}, 400
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
-    conn.close()
+    with db_conn() as conn:
+        row = conn.execute("SELECT * FROM clips WHERE id = ?", (clip_id,)).fetchone()
     if not row:
         return {"error": "not found"}, 404
 
@@ -257,9 +250,8 @@ def pull_clip(clip_id):
 def normalize_all():
     """Backfill web-safe proxies for every local video that doesn't have a fresh one.
     Returns immediately; work proceeds serially in the background."""
-    conn = get_conn()
-    stems = [r["file_stem"] for r in conn.execute("SELECT file_stem FROM clips").fetchall()]
-    conn.close()
+    with db_conn() as conn:
+        stems = [r["file_stem"] for r in conn.execute("SELECT file_stem FROM clips").fetchall()]
     todo = []
     for stem in stems:
         p = find_media_file(stem)
@@ -289,29 +281,26 @@ def import_finalize():
     context = (data.get("context") or "").strip()
     campaign_id = data.get("campaign_id") or None
 
-    conn = get_conn()
     ids = []
-    for s in stems:
-        r = conn.execute("SELECT id FROM clips WHERE file_stem = ?", (s,)).fetchone()
-        if r:
-            ids.append(r["id"])
-
     context_applied = 0
-    if context and ids:
-        ph = ",".join("?" * len(ids))
-        conn.execute(f"UPDATE clips SET context = ? WHERE id IN ({ph})", (context, *ids))
-        context_applied = len(ids)
-
     added_to_campaign = 0
-    if campaign_id and ids:
-        for cid in ids:
-            cur = conn.execute(
-                "INSERT OR IGNORE INTO campaign_clips (campaign_id, clip_id) VALUES (?, ?)",
-                (campaign_id, cid),
-            )
-            added_to_campaign += cur.rowcount
+    with db_conn() as conn:
+        for s in stems:
+            r = conn.execute("SELECT id FROM clips WHERE file_stem = ?", (s,)).fetchone()
+            if r:
+                ids.append(r["id"])
 
-    conn.commit()
-    conn.close()
+        if context and ids:
+            ph = ",".join("?" * len(ids))
+            conn.execute(f"UPDATE clips SET context = ? WHERE id IN ({ph})", (context, *ids))
+            context_applied = len(ids)
+
+        if campaign_id and ids:
+            for cid in ids:
+                cur = conn.execute(
+                    "INSERT OR IGNORE INTO campaign_clips (campaign_id, clip_id) VALUES (?, ?)",
+                    (campaign_id, cid),
+                )
+                added_to_campaign += cur.rowcount
     return jsonify({"clips": len(ids), "context_applied": context_applied,
                     "added_to_campaign": added_to_campaign})
