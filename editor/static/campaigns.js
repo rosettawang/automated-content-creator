@@ -435,7 +435,16 @@ function renderPosts(posts) {
     const li = document.createElement("li");
     li.className = `post-item post-${p.status}`;
     const cap = (p.caption || "").trim() || "(no caption)";
-    const when = p.published_at || p.scheduled_at || "";
+    const whenRaw = p.published_at || p.scheduled_at || "";
+    // Show a compact local time (the ISO is stored UTC); fall back to raw on parse fail.
+    let when = whenRaw;
+    if (whenRaw) {
+      const d = new Date(whenRaw);
+      if (!isNaN(d)) {
+        when = (p.scheduled_at && !p.published_at ? "⏰ " : "") +
+          d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+      }
+    }
     li.innerHTML =
       `<span class="post-platform">${escapeText(p.platform)}</span>` +
       `<span class="post-status">${POST_STATUS[p.status] || p.status}</span>` +
@@ -457,30 +466,53 @@ function renderPosts(posts) {
   });
 }
 
-document.getElementById("cmp-post-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
+// Shared create path for both "Post now" and "Schedule".
+async function submitPost({ schedule }) {
   if (!drawerCampaign) return;
   const platform = document.getElementById("cmp-post-platform").value;
   const caption = document.getElementById("cmp-post-caption").value.trim();
   const hashtags = document.getElementById("cmp-post-hashtags").value.trim();
+  const whenEl = document.getElementById("cmp-post-when");
   const status = document.getElementById("cmp-post-status");
-  const btn = document.getElementById("cmp-post-now");
-  btn.disabled = true;
-  status.textContent = "Posting…";
+  const nowBtn = document.getElementById("cmp-post-now");
+  const schedBtn = document.getElementById("cmp-post-schedule-btn");
+
+  const body = { platform, caption, hashtags };
+  if (schedule) {
+    if (!whenEl.value) { status.textContent = "Pick a date & time to schedule."; return; }
+    // datetime-local is local wall-time; send UTC ISO so it compares against the
+    // scheduler's UTC clock.
+    body.scheduled_at = new Date(whenEl.value).toISOString();
+  } else {
+    body.publish_now = true;
+  }
+
+  nowBtn.disabled = schedBtn.disabled = true;
+  status.textContent = schedule ? "Scheduling…" : "Posting…";
   try {
     const res = await api(`/api/campaigns/${drawerCampaign.id}/posts`, {
-      method: "POST",
-      body: JSON.stringify({ platform, caption, hashtags, publish_now: true }),
+      method: "POST", body: JSON.stringify(body),
     });
-    status.textContent = res.dry_run ? "Queued (dry run — nothing sent)" : "Queued";
+    status.textContent = schedule
+      ? "Scheduled."
+      : (res.dry_run ? "Queued (dry run — nothing sent)" : "Queued");
     document.getElementById("cmp-post-caption").value = "";
     document.getElementById("cmp-post-hashtags").value = "";
-    setTimeout(loadPosts, 400);  // let the publish job land, then refresh
+    whenEl.value = "";
+    setTimeout(loadPosts, schedule ? 0 : 400);  // publish-now needs the job to land
   } catch (err) {
     status.textContent = `Error: ${err.message}`;
   } finally {
-    btn.disabled = false;
+    nowBtn.disabled = schedBtn.disabled = false;
   }
+}
+
+document.getElementById("cmp-post-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  submitPost({ schedule: false });
+});
+document.getElementById("cmp-post-schedule-btn").addEventListener("click", () => {
+  submitPost({ schedule: true });
 });
 
 loadCampaigns();

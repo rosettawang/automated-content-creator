@@ -442,3 +442,11 @@ html.embedded #campaigns-header h1 { display: none; }
   cursor: pointer; line-height: 1; padding: 0 0.2rem;
 }
 .post-cancel:hover { color: #e08080; }
+
+.cmp-post-schedule { display: flex; align-items: center; gap: 0.5rem; font-size: 0.78rem; color: #aaa; }
+.cmp-post-schedule input { flex: 1; }
+#cmp-post-schedule-btn {
+  font-size: 0.82rem; padding: 0.4rem 0.8rem; border-radius: 6px;
+  border: 1px solid #4a6a4a; background: #2c2c2c; color: #cfe; cursor: pointer;
+}
+#cmp-post-schedule-btn:disabled { opacity: 0.5; cursor: default; }
