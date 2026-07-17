@@ -25,8 +25,7 @@ window.addEventListener("message", (e) => {
 
 async function loadClips() {
   const url = currentCampaignId ? `/api/clips?campaign=${currentCampaignId}` : "/api/clips";
-  const res = await fetch(url);
-  allClips = await res.json();
+  allClips = await api(url);
   applyFilter();
 }
 
@@ -145,8 +144,7 @@ function schedulePollingIfNeeded(clips) {
   const hasIndexing = clips.some((c) => c.index_status === "indexing");
   if (hasIndexing && !_pollTimer) {
     _pollTimer = setInterval(async () => {
-      const res = await fetch("/api/clips");
-      const fresh = await res.json();
+      const fresh = await api("/api/clips");
       const stillIndexing = fresh.some((c) => c.index_status === "indexing");
       // Patch badges in-place to avoid a full re-render flicker.
       fresh.forEach((clip) => {
@@ -299,8 +297,7 @@ async function renderTranscript(clip) {
   if (clip.kind === "photo") return;
   let segs = [];
   try {
-    const res = await fetch(`/api/clips/${clip.id}/events?kind=speech`);
-    segs = await res.json();
+    segs = await api(`/api/clips/${clip.id}/events?kind=speech`);
   } catch { return; }
   if (!segs.length) return;
 
@@ -331,8 +328,7 @@ async function renderScenes(clip) {
   if (clip.kind === "photo") return;
   let evs = [];
   try {
-    const res = await fetch(`/api/clips/${clip.id}/events?kind=scene`);
-    evs = await res.json();
+    evs = await api(`/api/clips/${clip.id}/events?kind=scene`);
   } catch { return; }
   if (!evs.length) return;
 
@@ -361,8 +357,7 @@ async function renderActions(clip) {
   if (clip.kind === "photo") return;
   let evs = [];
   try {
-    const res = await fetch(`/api/clips/${clip.id}/events?kind=action`);
-    evs = await res.json();
+    evs = await api(`/api/clips/${clip.id}/events?kind=action`);
   } catch { return; }
   if (!evs.length) return;
 
@@ -505,13 +500,10 @@ document.getElementById("edit-save").addEventListener("click", async () => {
   statusEl.textContent = "Saving…";
   statusEl.classList.remove("error");
   try {
-    const res = await fetch(`/api/clips/${infoClip.id}/metadata`, {
+    const saved = await api(`/api/clips/${infoClip.id}/metadata`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const saved = await res.json();
-    if (!res.ok) throw new Error(saved.error || res.statusText);
 
     // Reflect the saved values in memory so the grid + panel stay in sync.
     Object.assign(infoClip, {
@@ -557,9 +549,7 @@ document.getElementById("raw-toggle").addEventListener("click", async () => {
   dbEl.textContent = "Loading…";
   embEl.textContent = "";
   try {
-    const res = await fetch(`/api/clips/${infoClip.id}/raw-metadata`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || res.statusText);
+    const data = await api(`/api/clips/${infoClip.id}/raw-metadata`);
     dbEl.textContent = JSON.stringify(data.db_row, null, 2);
     if (data.embedded) {
       embEl.textContent = JSON.stringify(data.embedded, null, 2);
@@ -644,13 +634,10 @@ function runSemanticSearch() {
   clearTimeout(_semanticTimer);
   _semanticTimer = setTimeout(async () => {
     try {
-      const res = await fetch("/api/search-semantic", {
+      const body = await api("/api/search-semantic", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: q, campaign: currentCampaignId || "", top_k: 60 }),
       });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error || res.statusText);
       if (body.unindexed) {
         document.getElementById("count").textContent =
           "no embeddings yet — click Build search index";
@@ -777,8 +764,7 @@ let selectedFiles = []; // File[] staged for upload
 // Fill the campaign dropdown from the current campaigns (kept optional).
 async function populateImportCampaigns() {
   try {
-    const res = await fetch("/api/campaigns");
-    const campaigns = await res.json();
+    const campaigns = await api("/api/campaigns");
     const keep = importCampaign.value;
     importCampaign.innerHTML = '<option value="">None</option>';
     campaigns.forEach((p) => {
@@ -1011,23 +997,15 @@ importSubmit.addEventListener("click", async () => {
     if (wantThings.length) {
       for (const name of wantThings) {
         try {
-          await fetch("/api/things", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name }),
-          }); // 409 (already exists) is fine — it's in the watchlist either way
+          // 409 (already exists) is fine — it's in the watchlist either way
+          await api("/api/things", { method: "POST", body: JSON.stringify({ name }) });
         } catch { /* non-fatal */ }
       }
     } else if (context) {
       setProgress(null, "Inferring things to look for from your context…");
       try {
-        const res = await fetch("/api/things/infer", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ context }),
-        });
-        const body = await res.json();
-        if (res.ok && body.things?.length) parts.push(`inferred: ${body.things.join(", ")}`);
+        const body = await api("/api/things/infer", { method: "POST", body: JSON.stringify({ context }) });
+        if (body.things?.length) parts.push(`inferred: ${body.things.join(", ")}`);
       } catch { /* non-fatal — import still proceeds */ }
     }
 
@@ -1055,18 +1033,16 @@ importSubmit.addEventListener("click", async () => {
     // Apply batch context + campaign to the clips that came in.
     const campaignId = importCampaign.value;
     if (stems.size && (context || campaignId)) {
-      const res = await fetch("/api/import-finalize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ file_stems: [...stems], context, campaign_id: campaignId || null }),
-      });
-      const fin = await res.json();
-      if (res.ok) {
+      try {
+        const fin = await api("/api/import-finalize", {
+          method: "POST",
+          body: JSON.stringify({ file_stems: [...stems], context, campaign_id: campaignId || null }),
+        });
         const extra = [];
         if (fin.context_applied) extra.push("context added");
         if (fin.added_to_campaign) extra.push(`${fin.added_to_campaign} added to campaign`);
         if (extra.length) parts.push(extra.join(", "));
-      }
+      } catch { /* finalize is best-effort — the clips already imported */ }
     }
 
     importProgress.classList.add("hidden");
@@ -1144,13 +1120,10 @@ addFromDisk.addEventListener("click", async () => {
   showProgressUI();
   setProgress(null, deleteOriginals ? "Moving files in…" : "Copying files in…");
   try {
-    const res = await fetch("/api/import-local-paths", {
+    const body = await api("/api/import-local-paths", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ paths, delete_originals: deleteOriginals }),
     });
-    const body = await res.json();
-    if (!res.ok) throw new Error(body.error || res.statusText);
     const anyError = body.results.some((r) => r.status === "error");
     importProgress.classList.add("hidden");
     const msg = summarize(body.results);
@@ -1208,13 +1181,7 @@ async function assembleVideo() {
     // the edit to it (its saved context also steers the cut, server-side).
     const payload = { prompt, clip_ids: clipIds };
     if (currentCampaignId) payload.campaign_id = parseInt(currentCampaignId, 10);
-    const res = await fetch("/api/generate-edit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const body = await res.json();
-    if (!res.ok) throw new Error(body.error || res.statusText);
+    const body = await api("/api/generate-edit", { method: "POST", body: JSON.stringify(payload) });
     assembleStatus.textContent =
       `Assembled ${body.selections.length} clip(s). Opening editor…`;
     // Navigate is intentional — the editor deep-links via ?edit=<id>.
@@ -1256,8 +1223,7 @@ const removeFromCampaign = document.getElementById("remove-from-campaign");
 const campaignActionStatus = document.getElementById("campaign-action-status");
 
 async function loadCampaigns() {
-  const res = await fetch("/api/campaigns");
-  const campaigns = await res.json();
+  const campaigns = await api("/api/campaigns");
   campaignsById = Object.fromEntries(campaigns.map((p) => [String(p.id), p]));
 
   // Fill the header filter (preserving current selection).
@@ -1317,11 +1283,7 @@ addToCampaign.addEventListener("change", async () => {
   if (!pid || !ids.length) { addToCampaign.value = ""; return; }
   campaignActionStatus.textContent = "Adding…";
   try {
-    await fetch(`/api/campaigns/${pid}/clips`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ clip_ids: ids }),
-    });
+    await api(`/api/campaigns/${pid}/clips`, { method: "POST", body: JSON.stringify({ clip_ids: ids }) });
     const name = campaignsById[pid]?.name || "campaign";
     campaignActionStatus.textContent = `Added ${ids.length} to "${name}".`;
     clearSelection();
@@ -1338,11 +1300,7 @@ removeFromCampaign.addEventListener("click", async () => {
   if (!currentCampaignId || !ids.length) return;
   campaignActionStatus.textContent = "Removing…";
   try {
-    await fetch(`/api/campaigns/${currentCampaignId}/clips`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ clip_ids: ids }),
-    });
+    await api(`/api/campaigns/${currentCampaignId}/clips`, { method: "DELETE", body: JSON.stringify({ clip_ids: ids }) });
     campaignActionStatus.textContent = `Removed ${ids.length}.`;
     clearSelection();
     await loadCampaigns();
