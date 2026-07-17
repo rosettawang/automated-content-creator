@@ -11,6 +11,8 @@ clips_out/*.mp4
 clips_out/*.mov
 clips_out/*.mkv
 # Keep: clips_out/*.fcpxml, clips_out/*.txt (edit decisions & notes)
+# Reusable encoded export segments (B4 cache) — large binaries, regenerable.
+segment_cache/
 # Editor app database — written live by the running app. NOT tracked: a git
 # checkout/switch would otherwise revert (and has wiped) the user's real library.
 # Recover the catalog from content_intake_log.xlsx (migrate_xlsx.py); keep local

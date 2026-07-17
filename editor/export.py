@@ -6,8 +6,10 @@ imports the feature modules, so it sits below `catalog` in the graph. Reads
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -325,12 +327,58 @@ def _unique_output_path(stem: str, suffix: str = ".mp4") -> Path:
     return candidate
 
 
+_SEGMENT_CACHE_MAX = 400   # most-recent encoded segments to keep on disk
+
+
+def _segment_cache_dir() -> Path:
+    """Where re-usable encoded segments live — beside CLIPS_OUT (so tests that
+    redirect CLIPS_OUT redirect this too)."""
+    d = config.CLIPS_OUT.parent / "segment_cache"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _segment_cache_key(source, in_point, out_point, dims, vf, has_audio) -> str:
+    """A content key for one encoded segment. The `vf` string fully encodes the
+    crop/Ken-Burns/aspect geometry, so identical inputs -> identical bytes -> reuse.
+    A re-export of an unchanged timeline is then a series of cache hits + a concat."""
+    raw = repr((str(source), round(float(in_point), 4), round(float(out_point), 4),
+                tuple(dims), vf, bool(has_audio), EXPORT_FPS, _social_bitrate_args(dims)))
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _prune_segment_cache(keep: int = _SEGMENT_CACHE_MAX) -> None:
+    d = config.CLIPS_OUT.parent / "segment_cache"
+    if not d.is_dir():
+        return
+    files = sorted(d.glob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for p in files[keep:]:
+        p.unlink(missing_ok=True)
+
+
 def _run_export_job(job_id, name, explicit_aspect, dims, plan):
     """Render the timeline to a social-normalized MP4 with live progress. `plan` is a
     list of self-contained item dicts (source path + in/out + crop/kb) so it needs no
     request context. Mirrors the import-job pattern: total = segments + 1 concat step."""
     region_conn = get_conn() if explicit_aspect else None
     output_path = None
+    # Probe results are stable per source path for the life of a run; memoize so a
+    # clip used in several segments costs one ffprobe pair, not one per segment.
+    _dims_memo: dict = {}
+    _audio_memo: dict = {}
+
+    def _src_dims(src):
+        k = str(src)
+        if k not in _dims_memo:
+            _dims_memo[k] = _source_dims(src)
+        return _dims_memo[k]
+
+    def _src_audio(src):
+        k = str(src)
+        if k not in _audio_memo:
+            _audio_memo[k] = _has_audio(src)
+        return _audio_memo[k]
+
     try:
         _update_job(job_id, total=len(plan) + 1, phase="encoding")
         with tempfile.TemporaryDirectory() as tmp:
@@ -340,7 +388,6 @@ def _run_export_job(job_id, name, explicit_aspect, dims, plan):
                 if _job_is_cancelled(job_id):
                     raise JobCancelled()
                 source = Path(item["source"])
-                _update_job(job_id, current=f"{source.name} ({i + 1}/{len(plan)})")
                 segment = tmp / f"segment_{i:03d}.mp4"
                 duration = item["out_point"] - item["in_point"]
 
@@ -348,7 +395,7 @@ def _run_export_job(job_id, name, explicit_aspect, dims, plan):
                     frame_item = item
                     if None in (item["crop_x"], item["crop_y"], item["crop_w"], item["crop_h"]):
                         auto = _auto_crop_from_regions(
-                            region_conn, item["clip_id"], dims[0] / dims[1], _source_dims(source)
+                            region_conn, item["clip_id"], dims[0] / dims[1], _src_dims(source)
                         )
                         if auto:
                             frame_item = dict(item)
@@ -363,8 +410,19 @@ def _run_export_job(job_id, name, explicit_aspect, dims, plan):
                         f"setsar=1,fps={EXPORT_FPS},format=yuv420p"
                     )
 
+                has_audio = _src_audio(source)
+
+                # Reuse an identically-encoded segment if we've rendered it before
+                # (unchanged clip + trim + framing on a re-export) — the expensive step.
+                cached = _segment_cache_dir() / (
+                    _segment_cache_key(source, item["in_point"], item["out_point"], dims, vf, has_audio) + ".mp4")
+                if cached.exists():
+                    segment_paths.append(cached)
+                    _update_job(job_id, current=f"{source.name} ({i + 1}/{len(plan)}, cached)", done=i + 1)
+                    continue
+                _update_job(job_id, current=f"{source.name} ({i + 1}/{len(plan)})")
+
                 cmd = ["ffmpeg", "-y", "-ss", str(item["in_point"]), "-i", str(source)]
-                has_audio = _has_audio(source)
                 if not has_audio:
                     cmd += ["-f", "lavfi", "-t", str(duration),
                             "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
@@ -377,7 +435,13 @@ def _run_export_job(job_id, name, explicit_aspect, dims, plan):
                         "-video_track_timescale", "90000",
                         str(segment)]
                 _run_cancellable(job_id, cmd)
-                segment_paths.append(segment)
+                # Only a fully-encoded segment reaches here (a cancel raises), so it's
+                # safe to publish into the cache and concat from there.
+                try:
+                    shutil.copy2(segment, cached)
+                    segment_paths.append(cached)
+                except OSError:
+                    segment_paths.append(segment)
                 _update_job(job_id, done=i + 1)
 
             if _job_is_cancelled(job_id):
@@ -394,6 +458,7 @@ def _run_export_job(job_id, name, explicit_aspect, dims, plan):
                 ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list),
                  "-c", "copy", "-movflags", "+faststart", str(output_path)],
             )
+            _prune_segment_cache()  # bound the cache to the most-recent N segments
             _update_job(job_id, done=len(plan) + 1, finished=True, current=None, phase="done",
                         results=[{"output": str(output_path),
                                   "width": dims[0], "height": dims[1], "fps": EXPORT_FPS}])

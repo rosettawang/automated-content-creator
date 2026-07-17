@@ -46,6 +46,31 @@ def test_export_success_produces_9_16_file(client, make_clip):
     assert Path(res["output"]).exists()
 
 
+def test_reexport_reuses_cached_segments(client, make_clip):
+    """B4: a re-export of an unchanged edit reuses cached segments — no new encodes,
+    so the segment cache doesn't grow on the second run."""
+    import config
+    eid = client.post("/api/edits", json={"name": "reel"}).get_json()["id"]
+    for stem in ("A", "B"):
+        cid = make_clip(stem, present=True)
+        client.post(f"/api/edits/{eid}/items", json={"clip_id": cid, "in_point": 0, "out_point": 1})
+
+    r = client.post(f"/api/edits/{eid}/export")
+    assert r.status_code == 200
+    assert _poll_job(client, r.get_json()["job_id"])["finished"]
+
+    cache = config.CLIPS_OUT.parent / "segment_cache"
+    n_after_first = len(list(cache.glob("*.mp4")))
+    assert n_after_first >= 2, "expected the two segments to be cached"
+
+    # Re-export the same edit: every segment should be a cache hit → count unchanged.
+    r2 = client.post(f"/api/edits/{eid}/export")
+    job2 = _poll_job(client, r2.get_json()["job_id"])
+    assert job2["finished"] and not job2.get("error")
+    assert Path(job2["results"][0]["output"]).exists()
+    assert len(list(cache.glob("*.mp4"))) == n_after_first, "re-export re-encoded instead of reusing cache"
+
+
 def test_auto_framed_kenburns_exports(client, conn, make_clip):
     """Framing v2 end-to-end: a clip with a moving subject, reframed to 9:16 at
     assemble time, stores a crop→kb pan that the zoompan export path must render into
