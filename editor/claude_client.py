@@ -18,6 +18,21 @@ def get_client() -> Anthropic:
     return _client
 
 
+def _parse(messages, schema, max_tokens, *, system=None, thinking=None, model=MODEL):
+    """One structured messages.parse → the parsed object. Centralizes the
+    get_client().messages.parse(...) scaffold repeated across this module; per-call
+    system prompt / thinking / model overrides pass through when given."""
+    extra = {}
+    if system is not None:
+        extra["system"] = system
+    if thinking is not None:
+        extra["thinking"] = thinking
+    return get_client().messages.parse(
+        model=model, max_tokens=max_tokens, messages=messages,
+        output_format=schema, **extra,
+    ).parsed_output
+
+
 class ClipSelection(BaseModel):
     clip_id: int
     in_point: float
@@ -129,14 +144,8 @@ def revise_edit(instruction: str, current_timeline: list[dict], clips: list[dict
         f"CLIP CATALOG (available to pull from):\n{catalog}\n\n"
         f"USER INSTRUCTION: {instruction}"
     )
-    response = get_client().messages.parse(
-        model=MODEL,
-        max_tokens=8000,
-        thinking={"type": "adaptive"},
-        messages=[{"role": "user", "content": message}],
-        output_format=EditChatResult,
-    )
-    return response.parsed_output
+    return _parse([{"role": "user", "content": message}], EditChatResult, 8000,
+                  thinking={"type": "adaptive"})
 
 
 class ContentIdea(BaseModel):
@@ -248,13 +257,7 @@ def deep_index_clip(
     """ONE deep 'analyze once, edit forever' pass over a clip -> clip summary +
     a timestamped segment timeline detailed enough to cut from."""
     content = _deep_index_content(frames, duration, transcript_segments, watchlist, media_type)
-    response = get_client().messages.parse(
-        model=MODEL,
-        max_tokens=4000,
-        messages=[{"role": "user", "content": content}],
-        output_format=DeepIndex,
-    )
-    return response.parsed_output
+    return _parse([{"role": "user", "content": content}], DeepIndex, 4000)
 
 
 def deep_index_batch_request(custom_id: str, frames, duration,
@@ -326,16 +329,10 @@ def propose_crop(image_bytes: bytes, aspect: str, media_type: str = "image/jpeg"
         f"0..1). Aim for the crop's width:height to be about {target_ar:.4f}. Briefly "
         f"say what you framed for."
     )
-    response = get_client().messages.parse(
-        model=MODEL,
-        max_tokens=600,
-        messages=[{"role": "user", "content": [
-            {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
-            {"type": "text", "text": msg},
-        ]}],
-        output_format=CropSuggestion,
-    )
-    out = response.parsed_output
+    out = _parse([{"role": "user", "content": [
+        {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
+        {"type": "text", "text": msg},
+    ]}], CropSuggestion, 600)
     return _normalize_crop(out, target_ar)
 
 
@@ -388,13 +385,7 @@ def pick_best_frame(subject: str, images: list[bytes], media_type: str = "image/
         "index of the best image and a brief reason."
     )})
     try:
-        response = get_client().messages.parse(
-            model=MODEL,
-            max_tokens=500,
-            messages=[{"role": "user", "content": content}],
-            output_format=BestFrame,
-        )
-        out = response.parsed_output
+        out = _parse([{"role": "user", "content": content}], BestFrame, 500)
         if 0 <= out.index < len(images):
             return out
         return BestFrame(index=0, reason="model index out of range; fell back to first")
@@ -426,13 +417,7 @@ def infer_campaign_things(name: str, description: str = "") -> CampaignThings:
         "'growth'). Return 3-8 of them; skip anything too generic to spot in a frame.\n\n"
         f"Campaign name: {name}{ctx}"
     )
-    response = get_client().messages.parse(
-        model=MODEL,
-        max_tokens=1500,
-        messages=[{"role": "user", "content": message}],
-        output_format=CampaignThings,
-    )
-    return response.parsed_output
+    return _parse([{"role": "user", "content": message}], CampaignThings, 1500)
 
 
 class CampaignChatResult(BaseModel):
@@ -489,14 +474,7 @@ def campaign_chat(
     )
     messages = [{"role": m["role"], "content": m["content"]} for m in history]
     messages.append({"role": "user", "content": user_message})
-    response = get_client().messages.parse(
-        model=MODEL,
-        max_tokens=3000,
-        system=system,
-        messages=messages,
-        output_format=CampaignChatResult,
-    )
-    return response.parsed_output
+    return _parse(messages, CampaignChatResult, 3000, system=system)
 
 
 def classify_thing_kind(name: str, description: str = "") -> str:
@@ -508,13 +486,8 @@ def classify_thing_kind(name: str, description: str = "") -> str:
         "plant, animal, person, action, object, other. Return only the single word."
     )
     try:
-        response = get_client().messages.parse(
-            model=MODEL,
-            max_tokens=200,
-            messages=[{"role": "user", "content": message}],
-            output_format=ThingKind,
-        )
-        kind = (response.parsed_output.kind or "").strip().lower()
+        result = _parse([{"role": "user", "content": message}], ThingKind, 200)
+        kind = (result.kind or "").strip().lower()
         return kind if kind in {"plant", "animal", "person", "action", "object", "other"} else "other"
     except Exception:
         return "other"
@@ -565,14 +538,9 @@ def match_things_in_text(watchlist: list[dict], clips: list[dict]) -> dict[int, 
         "name exactly as written above. Omit clips with no matches.\n\n"
         f"Clips:\n{clips_block}"
     )
-    response = get_client().messages.parse(
-        model=MODEL,
-        max_tokens=8000,
-        thinking={"type": "adaptive"},
-        messages=[{"role": "user", "content": message}],
-        output_format=ClipMatches,
-    )
-    return {m.clip_id: m.matched for m in response.parsed_output.results if m.matched}
+    result = _parse([{"role": "user", "content": message}], ClipMatches, 8000,
+                    thinking={"type": "adaptive"})
+    return {m.clip_id: m.matched for m in result.results if m.matched}
 
 
 def _format_clip_catalog(clips: list[dict]) -> str:
@@ -635,14 +603,8 @@ def generate_rough_cut(prompt: str, clips: list[dict]) -> RoughCutPlan:
         f"Clip catalog:\n{catalog}\n\n"
         f"Requested video: {prompt}"
     )
-    response = get_client().messages.parse(
-        model=MODEL,
-        max_tokens=8000,
-        thinking={"type": "adaptive"},
-        messages=[{"role": "user", "content": message}],
-        output_format=RoughCutPlan,
-    )
-    return response.parsed_output
+    return _parse([{"role": "user", "content": message}], RoughCutPlan, 8000,
+                  thinking={"type": "adaptive"})
 
 
 def suggest_content(clips: list[dict]) -> ContentSuggestions:
@@ -657,14 +619,8 @@ def suggest_content(clips: list[dict]) -> ContentSuggestions:
         "tied to a specific gap or opportunity in the existing catalog -- not generic "
         "content advice."
     )
-    response = get_client().messages.parse(
-        model=MODEL,
-        max_tokens=4000,
-        thinking={"type": "adaptive"},
-        messages=[{"role": "user", "content": message}],
-        output_format=ContentSuggestions,
-    )
-    return response.parsed_output
+    return _parse([{"role": "user", "content": message}], ContentSuggestions, 4000,
+                  thinking={"type": "adaptive"})
 
 
 def _format_watchlist(watchlist: list[dict]) -> str:
@@ -709,19 +665,13 @@ def analyze_frame(
         "to return an empty list if nothing stands out. These boxes are used to reframe "
         "or crop the video to other aspect ratios without cutting the subject."
     )
-    response = get_client().messages.parse(
-        model=MODEL,
-        max_tokens=1500,
-        messages=[{
-            "role": "user",
-            "content": [
-                {
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": media_type, "data": image_b64},
-                },
-                {"type": "text", "text": message},
-            ],
-        }],
-        output_format=VisualAnalysis,
-    )
-    return response.parsed_output
+    return _parse([{
+        "role": "user",
+        "content": [
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": media_type, "data": image_b64},
+            },
+            {"type": "text", "text": message},
+        ],
+    }], VisualAnalysis, 1500)
