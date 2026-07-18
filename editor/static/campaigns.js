@@ -46,84 +46,137 @@ async function loadCampaigns() {
   });
 }
 
+// ---- derived helpers for the stacked overview cards ----
+const PLATFORM_SHORT = { instagram: "IG", tiktok: "TikTok", youtube: "YT", facebook: "FB" };
+function platformShort(pl) {
+  const k = (pl || "").toLowerCase();
+  return PLATFORM_SHORT[k] || (pl ? pl[0].toUpperCase() + pl.slice(1) : "");
+}
+function fmtCount2(n) {  // 48200 -> "48.2k"
+  if (n == null) return "0";
+  if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k";
+  return String(n);
+}
+function relWhen(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  return d.toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
+}
+function shortCap(p) {
+  const c = (p.caption || "").trim();
+  return c ? `"${c.length > 32 ? c.slice(0, 31) + "…" : c}"` : "post";
+}
+function lastActivity(p) {
+  const times = (p._posts || [])
+    .map((x) => x.published_at || x.scheduled_at).filter(Boolean)
+    .map((t) => new Date(t)).filter((d) => !isNaN(d));
+  times.push(new Date(p.created_at));
+  return new Date(Math.max(...times.map((d) => d.getTime())));
+}
+
+// The single state-adaptive "Next" action, derived purely from a campaign's posts +
+// clip count (no stored state, no new endpoint). Precedence: failed → soonest
+// scheduled → idle. Returns { state, msg, action } or null if not yet enriched.
+function deriveNext(p) {
+  if (!p._enriched) return null;
+  const posts = p._posts || [];
+  const failed = posts.find((x) => x.status === "failed");
+  if (failed) {
+    return { state: "attn", action: "Fix",
+      msg: `${platformShort(failed.platform)} post failed${failed.error ? " — " + failed.error : ""}` };
+  }
+  const upcoming = posts
+    .filter((x) => x.status === "scheduled" && x.scheduled_at)
+    .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+  if (upcoming.length) {
+    const nx = upcoming[0];
+    return { state: "ontrack", action: "Review",
+      msg: `${shortCap(nx)} posts ${relWhen(nx.scheduled_at)}` };
+  }
+  const clips = p.clip_count || 0;
+  const idleDays = Math.max(0, Math.round((Date.now() - lastActivity(p)) / 86400000));
+  const msg = clips
+    ? `Idle ${idleDays} day${idleDays === 1 ? "" : "s"} — ${clips} clip${clips === 1 ? "" : "s"} ready to assemble`
+    : "No clips yet — add footage to this campaign to get started";
+  return { state: "idle", action: "Ideas", msg };
+}
+
+function channelLine(p) {
+  const plats = [...new Set((p._posts || []).map((x) => x.platform).filter(Boolean))];
+  if (plats.length) return plats.map(platformShort).join(" · ");
+  return p._enriched ? "not connected" : "";
+}
+
+function renderPortfolioSummary() {
+  const enriched = allCampaigns.filter((p) => p._enriched);
+  const active = allCampaigns.filter(
+    (p) => (p.clip_count || 0) > 0 || (p._posts || []).length > 0).length;
+  const weekEnd = Date.now() + 7 * 86400000;
+  const thisWeek = enriched.reduce((n, p) => n + (p._posts || []).filter(
+    (x) => x.status === "scheduled" && x.scheduled_at &&
+      new Date(x.scheduled_at) > Date.now() && new Date(x.scheduled_at) <= weekEnd).length, 0);
+  const needs = enriched.filter((p) => (p._posts || []).some((x) => x.status === "failed")).length;
+  const bits = [`${active} active`];
+  if (thisWeek) bits.push(`${thisWeek} post${thisWeek === 1 ? "" : "s"} go out this week`);
+  if (needs) bits.push(`${needs} need${needs === 1 ? "s" : ""} you`);
+  document.getElementById("cmp-count").textContent =
+    allCampaigns.length ? bits.join(" · ") : "";
+}
+
 function render() {
   const grid = document.getElementById("campaigns-grid");
   grid.innerHTML = "";
-  document.getElementById("cmp-count").textContent =
-    `${allCampaigns.length} campaign${allCampaigns.length === 1 ? "" : "s"}`;
+  renderPortfolioSummary();
   document.getElementById("empty").classList.toggle("hidden", allCampaigns.length > 0);
 
   allCampaigns.forEach((p) => {
+    const next = deriveNext(p);
+    const state = next ? next.state : "idle";
     const card = document.createElement("div");
-    card.className = "campaign-card";
+    card.className = `campaign-card ${state}`;
 
-    const title = document.createElement("div");
-    title.className = "campaign-title";
-    title.textContent = p.name;
+    // top row: name + channel line
+    const top = document.createElement("div");
+    top.className = "cc-top";
+    top.innerHTML =
+      `<p class="cc-name">${escapeText(p.name)}</p>` +
+      `<span class="cc-chan">${escapeText(channelLine(p))}</span>`;
 
-    const desc = document.createElement("div");
-    desc.className = "campaign-desc";
-    // Prefer a manual description; otherwise fall back to a summary of the living
-    // context brief the chat maintains, so a campaign with real context doesn't
-    // read as empty.
-    const summary = (p.description || "").trim() || contextSummary(p.context_doc);
-    desc.textContent = summary || "No description yet.";
-    if (!summary) desc.classList.add("muted");
-
-    const meta = document.createElement("div");
-    meta.className = "campaign-meta";
-    meta.textContent = `${p.clip_count || 0} clip${p.clip_count === 1 ? "" : "s"}`;
-
-    // Saved cuts (edits) in this campaign — click one to open it in the editor.
-    const cuts = editsByCampaign[String(p.id)] || [];
-    const cutsWrap = document.createElement("div");
-    cutsWrap.className = "campaign-cuts";
-    if (cuts.length) {
-      const label = document.createElement("div");
-      label.className = "cuts-label";
-      label.textContent = `Cuts (${cuts.length})`;
-      cutsWrap.appendChild(label);
-      cuts.forEach((cut) => {
-        const row = document.createElement("button");
-        row.className = "cut-row";
-        row.title = "Open this cut in the editor";
-        row.innerHTML =
-          `<span class="cut-name">${escapeText(cut.name)}</span>` +
-          `<span class="cut-count">${cut.item_count || 0} clip${cut.item_count === 1 ? "" : "s"}</span>`;
-        row.onclick = (e) => {
-          e.stopPropagation();
-          if (window.studioOpenEdit) window.studioOpenEdit(cut.id);
-          else window.location.href = `/?edit=${cut.id}`;
-        };
-        cutsWrap.appendChild(row);
-      });
+    // stat strip: cuts · scheduled · reach 30d · spend
+    const cuts = (editsByCampaign[String(p.id)] || []).length;
+    const posts = p._posts || [];
+    const scheduled = posts.filter((x) => x.status === "scheduled").length;
+    const reach = p._summary ? p._summary.total_reach : null;
+    const spend = p._summary ? p._summary.total_spend : null;
+    const stats = document.createElement("div");
+    stats.className = "cc-stats";
+    const stat = (v, label) => `<span><b>${v}</b> ${label}</span>`;
+    let statsHtml = stat(cuts, `cut${cuts === 1 ? "" : "s"}`);
+    if (p._enriched) {
+      statsHtml += stat(scheduled, "scheduled");
+      if (reach != null && reach > 0) statsHtml += stat(fmtCount2(reach), "reach 30d");
+      statsHtml += stat(`$${spend ? Math.round(spend) : 0}`, "spend");
     } else {
-      const none = document.createElement("div");
-      none.className = "cuts-label muted";
-      none.textContent = "No cuts yet — open the editor and Generate one";
-      cutsWrap.appendChild(none);
+      statsHtml += `<span class="muted">…</span>`;
+    }
+    stats.innerHTML = statsHtml;
+
+    card.append(top, stats);
+
+    // state-adaptive Next block (once enriched)
+    if (next) {
+      const nextEl = document.createElement("div");
+      nextEl.className = `cc-next ${next.state}`;
+      const msg = document.createElement("span");
+      msg.className = "cc-next-msg";
+      msg.innerHTML = `<b>Next:</b> ${escapeText(next.msg)}`;
+      const btn = document.createElement("button");
+      btn.textContent = next.action;
+      btn.onclick = (e) => { e.stopPropagation(); openDrawer(p); };
+      nextEl.append(msg, btn);
+      card.append(nextEl);
     }
 
-    const actions = document.createElement("div");
-    actions.className = "campaign-actions";
-
-    const editBtn = document.createElement("button");
-    editBtn.className = "secondary";
-    editBtn.textContent = "Edit";
-    editBtn.onclick = (e) => { e.stopPropagation(); openDialog(p); };
-
-    const delBtn = document.createElement("button");
-    delBtn.className = "danger";
-    delBtn.textContent = "Delete";
-    delBtn.onclick = async (e) => {
-      e.stopPropagation();
-      if (!confirm(`Delete campaign "${p.name}"? Clips themselves are not deleted.`)) return;
-      await api(`/api/campaigns/${p.id}`, { method: "DELETE" });
-      await loadCampaigns();
-    };
-
-    actions.append(editBtn, delBtn);
-    card.append(title, desc, meta, cutsWrap, actions);
     card.onclick = () => openDrawer(p);
     grid.appendChild(card);
   });
@@ -208,6 +261,19 @@ function openDrawer(campaign) {
   loadChat();
   loadPosts();
 }
+
+// Edit / delete moved off the overview cards into the drawer head (the list stays
+// clean per the mockup; management lives in the detail hub).
+document.getElementById("drawer-edit").addEventListener("click", () => {
+  if (drawerCampaign) openDialog(drawerCampaign);
+});
+document.getElementById("drawer-delete").addEventListener("click", async () => {
+  if (!drawerCampaign) return;
+  if (!confirm(`Delete campaign "${drawerCampaign.name}"? Clips themselves are not deleted.`)) return;
+  await api(`/api/campaigns/${drawerCampaign.id}`, { method: "DELETE" });
+  closeDrawer();
+  await loadCampaigns();
+});
 
 document.getElementById("cmp-arm-check").addEventListener("change", async (e) => {
   if (!drawerCampaign) return;
@@ -445,7 +511,7 @@ function initPostPlatforms() {
 }
 
 let cmpPosts = [];      // last-loaded posts for this campaign
-let cmpCalView = false;  // false = list, true = calendar
+let cmpCalView = true;  // default to the calendar view (matches the hub mockup)
 
 async function loadPosts() {
   initPostPlatforms();
@@ -643,6 +709,10 @@ async function openPostDetail(postId) {
   }
   if (p.boost_spend != null || p.boost_budget != null) {
     tiles.push(["Boost", `$${Math.round(p.boost_spend || 0)}${p.boost_budget ? ` of $${Math.round(p.boost_budget)}` : ""}`]);
+  }
+  // Cost per 1k reach — only when we have both spend and reach to divide.
+  if (p.boost_spend > 0 && m && m.reach > 0) {
+    tiles.push(["Cost/reach", `$${(p.boost_spend / m.reach * 1000).toFixed(2)}/k`]);
   }
   if (!tiles.length) {
     metricsEl.innerHTML = "<div class='detail-empty'>No metrics yet — use “Refresh metrics”.</div>";
