@@ -20,3 +20,8 @@ pillow
 transformers==4.46.3
 # On-device image understanding (CLIP zero-shot) for watchlist detection + category.
 open_clip_torch
+
+# Beat detection for trending-audio compose (audio-design Phase 4). Present already via
+# the ML stack, but this module imports them directly, so declare them.
+numpy
+scipy

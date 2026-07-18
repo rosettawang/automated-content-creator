@@ -1,7 +1,43 @@
+import logging
+from collections import namedtuple
+
 from flask import Blueprint
 from core import *
+from audio_beats import detect_beats
 
+log = logging.getLogger("editor.blueprints.edits")
 bp = Blueprint("edits", __name__)
+
+# Lightweight selection carrier for _replace_timeline after beat-snapping.
+_Sel3 = namedtuple("_Sel3", "clip_id in_point out_point")
+
+
+def _detect_and_store_beats(edit_id, path, start):
+    """Detect the beat grid for a reference track and store it (JSON, relative to the
+    used start) on the edit. Best-effort — a failure just leaves beats empty."""
+    try:
+        beats = detect_beats(path, start or 0.0)
+    except Exception as e:
+        log.warning("beat detection failed for edit %s: %s", edit_id, e)
+        beats = []
+    with db_conn() as conn:
+        conn.execute("UPDATE edits SET ref_audio_beats = ? WHERE id = ?",
+                     (json.dumps(beats), edit_id))
+
+
+def _beat_snap(edit, selections, clips):
+    """If the edit has a reference-audio beat grid, snap the AI selections' lengths to
+    it (trending-audio compose); else pass them through. Returns (clip_id, in, out)
+    tuples. `clips` is the generation pool (for the per-clip duration cap)."""
+    raw = edit["ref_audio_beats"] if "ref_audio_beats" in edit.keys() else None
+    if not raw:
+        return [(s.clip_id, s.in_point, s.out_point) for s in selections]
+    try:
+        beats = json.loads(raw)
+    except Exception:
+        beats = []
+    clip_durs = {c["id"]: c.get("duration_s") for c in clips}
+    return snap_cuts_to_beats(selections, beats, clip_durs)
 
 
 @bp.get("/api/edits")
@@ -152,11 +188,11 @@ def generate_into_edit(edit_id):
             "SELECT COALESCE(MAX(position), -1) AS m FROM timeline_items WHERE edit_id = ?",
             (edit_id,),
         ).fetchone()["m"]
-        for i, sel in enumerate(plan.selections):
+        for i, (clip_id, in_p, out_p) in enumerate(_beat_snap(edit, plan.selections, clips)):
             conn.execute(
                 """INSERT INTO timeline_items (edit_id, clip_id, position, in_point, out_point)
                    VALUES (?, ?, ?, ?, ?)""",
-                (edit_id, sel.clip_id, max_pos + 1 + i, sel.in_point, sel.out_point),
+                (edit_id, clip_id, max_pos + 1 + i, in_p, out_p),
             )
         # Fill an inferred frame only if this edit doesn't already have one set — never
         # override an explicit aspect on an append.
@@ -251,7 +287,9 @@ def chat_edit(edit_id):
 
         # Snapshot BEFORE applying, so undo returns to the pre-prompt version.
         _snapshot_edit(conn, edit_id, prompt)
-        _replace_timeline(conn, edit_id, result.selections)
+        # Beat-snap the revised cut too when a reference track is set.
+        snapped = [_Sel3(cid, i, o) for cid, i, o in _beat_snap(edit, result.selections, pool)]
+        _replace_timeline(conn, edit_id, snapped)
         # The model fills aspect ONLY when the instruction asked to reframe (e.g. "make it
         # square"), so a chat that doesn't mention framing leaves the edit's aspect intact
         # — an explicit gear choice is never clobbered unless the user asks.
@@ -432,6 +470,10 @@ def set_reference_audio(edit_id):
         row = conn.execute(
             "SELECT ref_audio_name, ref_audio_start FROM edits WHERE id = ?", (edit_id,)
         ).fetchone()
+    # Detect the beat grid in the background so the upload returns immediately; the UI
+    # polls the edit for `ref_audio_beats` to populate.
+    threading.Thread(target=_detect_and_store_beats, args=(edit_id, str(dest), start),
+                     daemon=True).start()
     return jsonify({**dict(row), "has_reference": True})
 
 

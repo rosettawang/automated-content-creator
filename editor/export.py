@@ -118,6 +118,36 @@ def _segment_audio_args(audio_mode: str, has_audio: bool) -> dict:
     }
 
 
+def snap_cuts_to_beats(selections, beats, clip_durs=None, min_len=0.4):
+    """Beat-align a rough cut (spec: audio-design Phase 4). Rounds each cut's LENGTH to
+    a whole number of beat-intervals, so the running timeline boundaries fall on the
+    beat grid (all lengths are multiples of the period → cumulative sums land on beats).
+
+    Pure + testable. `selections` = objects with .clip_id/.in_point/.out_point; `beats`
+    = the detected even grid (seconds); `clip_durs` = {clip_id: seconds} to cap trims so
+    a snap never runs past the source. Returns a list of (clip_id, in_point, out_point).
+    Unchanged (just extracted) when there's no usable grid."""
+    sels = [(s.clip_id, float(s.in_point), float(s.out_point)) for s in selections]
+    if not beats or len(beats) < 2:
+        return sels
+    diffs = [b - a for a, b in zip(beats, beats[1:]) if b > a]
+    period = sorted(diffs)[len(diffs) // 2] if diffs else 0.0
+    if period <= 0:
+        return sels
+    out = []
+    for clip_id, inp, outp in sels:
+        cur = max(0.0, outp - inp)
+        mult = max(1, round(cur / period))
+        target = mult * period
+        if clip_durs and clip_id in clip_durs and clip_durs[clip_id]:
+            avail = max(0.0, clip_durs[clip_id] - inp)
+            if target > avail:                       # can't run past the source
+                target = (avail // period) * period or avail   # floor to whole beats, else all
+        target = max(target, min_len)
+        out.append((clip_id, round(inp, 3), round(inp + target, 3)))
+    return out
+
+
 def _kb_keys(item) -> tuple | None:
     """Return the Ken Burns END rect if fully set, else None."""
     ex, ey, ew, eh = item["kb_x"], item["kb_y"], item["kb_w"], item["kb_h"]

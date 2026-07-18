@@ -1,8 +1,10 @@
-"""Audio design — Phase 1 (spec: specs/audio-design.md).
+"""Audio design (spec: specs/audio-design.md).
 
-Covers plan→edit storage (generate/chat/PUT) and the per-mode export filter-graph
-construction. No audio analysis — the encode args are asserted as strings.
+Covers plan→edit storage (generate/chat/PUT), per-mode export filter-graph
+construction, and the Phase-4 reference-track + beat-snap compose flow.
 """
+import json
+
 import pytest
 
 from export import _segment_audio_args
@@ -148,3 +150,78 @@ def test_reference_does_not_change_export_audio_mode(client):
                 data={"file": (io.BytesIO(b"ID3x"), "t.mp3")},
                 content_type="multipart/form-data")
     assert client.get(f"/api/edits/{eid}").get_json()["audio_mode"] == "clean"
+
+
+# ---- beat-snap cut timing (Phase 4) ----
+from export import snap_cuts_to_beats
+from audio_beats import detect_beats, estimate_bpm
+
+
+class _Sel:
+    def __init__(self, clip_id, in_point, out_point):
+        self.clip_id, self.in_point, self.out_point = clip_id, in_point, out_point
+
+
+def test_snap_rounds_cuts_to_beat_multiples():
+    beats = [round(i * 0.5, 3) for i in range(20)]        # 120 BPM grid, period 0.5s
+    sels = [_Sel(1, 0.0, 1.3), _Sel(2, 2.0, 2.4), _Sel(3, 0.0, 2.1)]
+    out = snap_cuts_to_beats(sels, beats)
+    lengths = [round(o - i, 3) for _, i, o in out]
+    assert lengths == [1.5, 0.5, 2.0]                     # snapped to nearest whole beats
+    # cumulative boundaries land on the beat grid
+    t = 0.0
+    for L in lengths:
+        t += L
+        assert any(abs(t - b) < 1e-6 for b in beats)
+
+
+def test_snap_caps_at_clip_duration():
+    beats = [round(i * 0.5, 3) for i in range(20)]
+    sels = [_Sel(1, 0.0, 1.9)]                            # wants 2.0, but clip is only 1.2s
+    out = snap_cuts_to_beats(sels, beats, clip_durs={1: 1.2})
+    _, i, o = out[0]
+    assert o - i <= 1.2 and round(o - i, 3) == 1.0        # floored to whole beats within the clip
+
+
+def test_snap_noop_without_grid():
+    sels = [_Sel(1, 0.0, 1.3)]
+    assert snap_cuts_to_beats(sels, []) == [(1, 0.0, 1.3)]
+
+
+def test_detect_beats_click_track(tmp_path):
+    import numpy as np, wave
+    sr, dur, bpm = 22050, 6.0, 120
+    y = np.zeros(int(sr * dur), dtype=np.float32)
+    for t in np.arange(0, dur, 60.0 / bpm):
+        i = int(t * sr); n = int(0.03 * sr)
+        y[i:i+n] += (np.random.randn(n) * np.exp(-np.linspace(0, 6, n))).astype(np.float32) * 0.8
+    p = tmp_path / "click.wav"
+    with wave.open(str(p), "w") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr)
+        w.writeframes((np.clip(y, -1, 1) * 32767).astype("<i2").tobytes())
+    beats = detect_beats(str(p))
+    assert len(beats) >= 6
+    assert abs((estimate_bpm(beats) or 0) - bpm) <= 8     # tolerant of octave-safe detection
+
+
+def test_generate_snaps_cuts_to_reference_beats(client, make_clip, conn, monkeypatch):
+    """generate-into-edit on an edit with a beat grid → item lengths land on beats."""
+    a = make_clip("A", present=True, duration_s=10.0)
+    b = make_clip("B", present=True, duration_s=10.0)
+    eid = client.post("/api/edits", json={"name": "E"}).get_json()["id"]
+    # stamp a 0.5s beat grid directly (skip async detection)
+    conn.execute("UPDATE edits SET ref_audio_beats = ? WHERE id = ?",
+                 (json.dumps([round(i * 0.5, 3) for i in range(40)]), eid))
+    conn.commit()
+
+    def fake_generate(prompt, clips):
+        return RoughCutPlan(concept="x", selections=[
+            ClipSelection(clip_id=a, in_point=0, out_point=1.3, reason="t"),
+            ClipSelection(clip_id=b, in_point=0, out_point=2.2, reason="t")])
+    import blueprints.edits as edits, json as _json
+    monkeypatch.setattr(edits, "generate_rough_cut", fake_generate)
+
+    client.post(f"/api/edits/{eid}/generate", json={"prompt": "cut to the beat"})
+    items = client.get(f"/api/edits/{eid}").get_json()["items"]
+    lengths = [round(it["out_point"] - it["in_point"], 3) for it in items]
+    assert lengths == [1.5, 2.0]     # 1.3→1.5, 2.2→2.0 (nearest whole 0.5s beats)
