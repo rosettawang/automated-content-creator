@@ -44,6 +44,17 @@
           </select>
         </label>
         <div id="audio-rationale" class="settings-substatus"></div>
+        <!-- Music mode: pick a track from the local music/ library (baked into export). -->
+        <div id="music-row" class="hidden">
+          <span class="settings-label">Music track</span>
+          <select id="music-select"></select>
+          <div class="settings-hint">Your own / licensed tracks from the <code>music/</code>
+            folder — baked into the file. (For trending audio, use Clean + add it in-app.)</div>
+        </div>
+        <!-- Clean mode: first-class guidance, not a dead end. -->
+        <div id="clean-note" class="settings-hint hidden">
+          Silent export — add trending or licensed audio natively in the app after posting.
+        </div>
         <!-- Voiceover script: editable BEFORE synthesis (never straight-to-audio).
              Shown only when Audio = Voiceover. -->
         <div id="vo-script-row" class="hidden">

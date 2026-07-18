@@ -42,3 +42,6 @@ editor/data/*.db-wal
 editor/data/*.db-shm
 # macOS/pywebview FUSE artifacts
 editor/data/.fuse_hidden*
+
+# User music library (audio-design Phase 2): user-supplied/licensed tracks, not source
+music/

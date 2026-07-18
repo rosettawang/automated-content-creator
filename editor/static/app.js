@@ -433,6 +433,8 @@ async function loadTimeline() {
   if (audioSel) audioSel.value = edit.audio_mode || "ambient";
   const rat = document.getElementById("audio-rationale");
   if (rat) rat.textContent = edit.audio_rationale || "";
+  if (typeof syncVoScriptVisibility === "function") syncVoScriptVisibility();
+  if (typeof syncMusicSelection === "function") syncMusicSelection(edit);
   if (typeof renderReferenceAudio === "function") renderReferenceAudio(edit);
   const voScript = document.getElementById("vo-script");
   if (voScript) voScript.value = edit.vo_script || "";
@@ -467,12 +469,59 @@ document.getElementById("aspect-select").addEventListener("change", async (e) =>
   if (typeof refreshCropOverlay === "function") refreshCropOverlay();
 });
 
-// Show the voiceover script field only when Audio = Voiceover.
+// Reveal the mode-specific controls: voiceover script, music picker, or clean note.
 function syncVoScriptVisibility() {
   const sel = document.getElementById("audio-select");
-  const row = document.getElementById("vo-script-row");
-  if (row && sel) row.classList.toggle("hidden", sel.value !== "voiceover");
+  const mode = sel ? sel.value : "";
+  const vo = document.getElementById("vo-script-row");
+  if (vo) vo.classList.toggle("hidden", mode !== "voiceover");
+  const mrow = document.getElementById("music-row");
+  if (mrow) mrow.classList.toggle("hidden", mode !== "music");
+  const cn = document.getElementById("clean-note");
+  if (cn) cn.classList.toggle("hidden", mode !== "clean");
+  if (mode === "music") loadMusicTracks();
 }
+
+// Populate the music picker from the local library (once, cached).
+let _musicTracks = null;
+async function loadMusicTracks() {
+  const sel = document.getElementById("music-select");
+  if (!sel) return [];
+  if (_musicTracks) return _musicTracks;
+  _musicTracks = await api("/api/music").catch(() => []);
+  sel.innerHTML = "";
+  if (!_musicTracks.length) {
+    const o = document.createElement("option");
+    o.value = ""; o.textContent = "(no tracks — add files to the music/ folder)";
+    sel.appendChild(o);
+  } else {
+    _musicTracks.forEach((t) => {
+      const o = document.createElement("option");
+      o.value = t.path;
+      o.textContent = t.mood ? `${t.name} — ${t.mood}` : t.name;
+      sel.appendChild(o);
+    });
+  }
+  return _musicTracks;
+}
+
+// Point the picker at the edit's stored track; if music mode has none yet, adopt the
+// first track and persist it so export has a bed.
+async function syncMusicSelection(edit) {
+  const sel = document.getElementById("audio-select");
+  if (!sel || sel.value !== "music") return;
+  await loadMusicTracks();
+  const ms = document.getElementById("music-select");
+  if (edit && edit.music_path) { ms.value = edit.music_path; return; }
+  if (ms.value && currentEditId) {
+    await api(`/api/edits/${currentEditId}`, { method: "PUT", body: JSON.stringify({ music_path: ms.value }) });
+  }
+}
+
+document.getElementById("music-select").addEventListener("change", async (e) => {
+  if (!currentEditId) return;
+  await api(`/api/edits/${currentEditId}`, { method: "PUT", body: JSON.stringify({ music_path: e.target.value }) });
+});
 
 // Persist the audio treatment on the current edit (mirrors the aspect control).
 document.getElementById("audio-select").addEventListener("change", async (e) => {
@@ -485,6 +534,7 @@ document.getElementById("audio-select").addEventListener("change", async (e) => 
   // A manual pick clears the model's rationale (it no longer explains the choice).
   const rat = document.getElementById("audio-rationale");
   if (rat) rat.textContent = "";
+  if (e.target.value === "music") syncMusicSelection(null);
 });
 
 // Save the (editable) voiceover script — synthesized only at export, never here.

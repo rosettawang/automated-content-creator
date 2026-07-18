@@ -225,3 +225,54 @@ def test_generate_snaps_cuts_to_reference_beats(client, make_clip, conn, monkeyp
     items = client.get(f"/api/edits/{eid}").get_json()["items"]
     lengths = [round(it["out_point"] - it["in_point"], 3) for it in items]
     assert lengths == [1.5, 2.0]     # 1.3→1.5, 2.2→2.0 (nearest whole 0.5s beats)
+
+
+# ---- music bed (Phase 2) ----
+import config as _config
+from export import _music_bed_filter
+
+
+def _make_music_dir(tmp_path, monkeypatch):
+    d = tmp_path / "music"; d.mkdir()
+    (d / "Upbeat Acoustic.mp3").write_bytes(b"ID3x")
+    (d / "Upbeat Acoustic.json").write_text(json.dumps({"mood": "upbeat acoustic", "tags": ["happy"]}))
+    (d / "Sad Piano.mp3").write_bytes(b"ID3x")
+    (d / "Sad Piano.json").write_text(json.dumps({"mood": "sad slow piano", "tags": ["mellow"]}))
+    monkeypatch.setattr(_config, "MUSIC_DIR", d)
+    return d
+
+
+def test_match_track_by_mood(tmp_path, monkeypatch):
+    from music_lib import list_tracks, match_track
+    _make_music_dir(tmp_path, monkeypatch)
+    assert len(list_tracks()) == 2
+    assert "Upbeat Acoustic" in match_track("energetic upbeat")
+    assert "Sad Piano" in match_track("slow mellow piano")
+    assert match_track("anything else")  # non-empty lib always returns a fallback
+
+
+def test_music_api_lists_tracks(client, tmp_path, monkeypatch):
+    _make_music_dir(tmp_path, monkeypatch)
+    names = {t["name"] for t in client.get("/api/music").get_json()}
+    assert names == {"Upbeat Acoustic", "Sad Piano"}
+
+
+def test_generate_music_mode_sets_track(client, make_clip, tmp_path, monkeypatch):
+    _make_music_dir(tmp_path, monkeypatch)
+    make_clip("A", present=True)
+
+    def fake_generate(prompt, clips):
+        return RoughCutPlan(concept="x",
+            selections=[ClipSelection(clip_id=clips[0]["id"], in_point=0, out_point=1, reason="t")],
+            audio_plan=AudioPlan(mode="music", rationale="montage", music_mood="upbeat acoustic"))
+    import blueprints.edits as edits
+    monkeypatch.setattr(edits, "generate_rough_cut", fake_generate)
+
+    body = client.post("/api/generate-edit", json={"prompt": "upbeat montage"}).get_json()
+    assert body["audio_mode"] == "music"
+    assert "Upbeat Acoustic" in (_edit(client, body["id"])["music_path"] or "")
+
+
+def test_music_bed_filter_fades():
+    f = _music_bed_filter(15.0)
+    assert "afade=t=in" in f and "afade=t=out:st=13.000" in f  # fade out 2s before end

@@ -4,9 +4,16 @@ from collections import namedtuple
 from flask import Blueprint
 from core import *
 from audio_beats import detect_beats
+from music_lib import list_tracks, match_track
 
 log = logging.getLogger("editor.blueprints.edits")
 bp = Blueprint("edits", __name__)
+
+
+@bp.get("/api/music")
+def list_music():
+    """The user's music library for 'music' audio mode (name/mood/tags per track)."""
+    return jsonify([{k: t[k] for k in ("name", "path", "mood", "tags")} for t in list_tracks()])
 
 # Lightweight selection carrier for _replace_timeline after beat-snapping.
 _Sel3 = namedtuple("_Sel3", "clip_id in_point out_point")
@@ -23,6 +30,17 @@ def _detect_and_store_beats(edit_id, path, start):
     with db_conn() as conn:
         conn.execute("UPDATE edits SET ref_audio_beats = ? WHERE id = ?",
                      (json.dumps(beats), edit_id))
+
+
+def _music_for(mode, music_mood):
+    """Pick a library track for 'music' mode from the model's mood words; None otherwise
+    (or when the music/ library is empty — export then falls back to ambient)."""
+    if mode != "music":
+        return None
+    try:
+        return match_track(music_mood or "")
+    except Exception:
+        return None
 
 
 def _beat_snap(edit, selections, clips):
@@ -207,8 +225,10 @@ def generate_into_edit(edit_id):
         audio_inferred = None
         if ap and ap.mode in AUDIO_MODES and not (edit["audio_mode"] if "audio_mode" in edit.keys() else None):
             conn.execute(
-                "UPDATE edits SET audio_mode = ?, audio_rationale = ?, vo_script = ? WHERE id = ?",
-                (ap.mode, ap.rationale or "", ap.vo_script, edit_id),
+                "UPDATE edits SET audio_mode = ?, audio_rationale = ?, vo_script = ?, "
+                "music_path = ? WHERE id = ?",
+                (ap.mode, ap.rationale or "", ap.vo_script,
+                 _music_for(ap.mode, ap.music_mood), edit_id),
             )
             audio_inferred = ap.mode
         _apply_auto_framing(conn, edit_id)  # subject-track the newly appended items (NULL-crop only)
@@ -302,8 +322,10 @@ def chat_edit(edit_id):
         new_audio = getattr(result, "audio_plan", None)
         if new_audio and new_audio.mode in AUDIO_MODES:
             conn.execute(
-                "UPDATE edits SET audio_mode = ?, audio_rationale = ?, vo_script = ? WHERE id = ?",
-                (new_audio.mode, new_audio.rationale or "", new_audio.vo_script, edit_id),
+                "UPDATE edits SET audio_mode = ?, audio_rationale = ?, vo_script = ?, "
+                "music_path = ? WHERE id = ?",
+                (new_audio.mode, new_audio.rationale or "", new_audio.vo_script,
+                 _music_for(new_audio.mode, new_audio.music_mood), edit_id),
             )
         _apply_auto_framing(conn, edit_id)  # timeline was fully replaced; frame the fresh items
         # Then apply any chat-driven framing on top (sticky manual crops), overriding auto.
@@ -414,10 +436,11 @@ def generate_edit_from_scratch():
             audio_mode, audio_rationale, vo_script = ap.mode, (ap.rationale or ""), ap.vo_script
         else:
             audio_mode, audio_rationale, vo_script = "ambient", "", None
+        music_path = _music_for(audio_mode, getattr(ap, "music_mood", None) if ap else None)
         cur = conn.execute(
-            "INSERT INTO edits (name, campaign_id, aspect, audio_mode, audio_rationale, vo_script) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (name, campaign_id, aspect, audio_mode, audio_rationale, vo_script),
+            "INSERT INTO edits (name, campaign_id, aspect, audio_mode, audio_rationale, "
+            "vo_script, music_path) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (name, campaign_id, aspect, audio_mode, audio_rationale, vo_script, music_path),
         )
         edit_id = cur.lastrowid
         for i, sel in enumerate(plan.selections):
@@ -753,10 +776,12 @@ def export_campaign(edit_id):
     # polls — no request timeout, live progress.
     audio_mode = (campaign["audio_mode"] if "audio_mode" in campaign.keys() else None) or "ambient"
     vo_script = campaign["vo_script"] if "vo_script" in campaign.keys() else None
+    music_path = campaign["music_path"] if "music_path" in campaign.keys() else None
     job_id = _new_job(f"Export · {campaign['name']}", "clip")
     threading.Thread(
         target=_run_export_job,
-        args=(job_id, campaign["name"], explicit_aspect, dims, plan, audio_mode, vo_script),
+        args=(job_id, campaign["name"], explicit_aspect, dims, plan),
+        kwargs={"audio_mode": audio_mode, "vo_script": vo_script, "music_path": music_path},
         daemon=True,
     ).start()
     return jsonify({"job_id": job_id})

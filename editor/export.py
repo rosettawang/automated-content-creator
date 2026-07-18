@@ -84,6 +84,15 @@ def _voiceover_mix_filter(duck: float = 0.18) -> str:
             f"[amb][1:a]amix=inputs=2:duration=first:dropout_transition=200[a]")
 
 
+def _music_bed_filter(total: float, gain: float = 0.9) -> str:
+    """filter_complex for a music bed: the looped track (input [1:a]) faded in over 1s
+    and out over the last ~2s, at `gain`, producing [a]. Length is bounded by -t total
+    on the command, so the loop is trimmed to the video."""
+    fade_out_at = max(0.0, total - 2.0)
+    return (f"[1:a]afade=t=in:st=0:d=1,"
+            f"afade=t=out:st={fade_out_at:.3f}:d=2,volume={gain}[a]")
+
+
 def _media_duration(path) -> float | None:
     try:
         out = subprocess.run(
@@ -440,15 +449,18 @@ def _prune_segment_cache(keep: int = _SEGMENT_CACHE_MAX) -> None:
 
 
 def _run_export_job(job_id, name, explicit_aspect, dims, plan, audio_mode="ambient",
-                    vo_script=None, vo_voice=None):
+                    vo_script=None, vo_voice=None, music_path=None):
     """Render the timeline to a social-normalized MP4 with live progress. `plan` is a
     list of self-contained item dicts (source path + in/out + crop/kb) so it needs no
     request context. Mirrors the import-job pattern: total = segments + 1 concat step.
     `audio_mode` picks the audio treatment (spec: specs/audio-design.md); voiceover mode
-    also synthesizes `vo_script` and lays it over ducked ambient in a final pass."""
-    # Segments carry normalized ambient audio for every mode except 'clean' (which
-    # strips it). Voiceover starts from ambient, then the VO is mixed on top post-concat.
-    audio_treat = "clean" if audio_mode == "clean" else "ambient"
+    synthesizes `vo_script` over ducked ambient, music mode lays `music_path` over silent
+    segments — both in a final post-concat pass."""
+    # Segments carry normalized ambient audio, EXCEPT: 'clean' strips it, and 'music'
+    # with an actual track strips it too (the bed replaces the camera audio). Music with
+    # no track falls back to ambient rather than shipping a silent video.
+    music_ready = audio_mode == "music" and music_path and Path(music_path).exists()
+    audio_treat = "clean" if (audio_mode == "clean" or music_ready) else "ambient"
     region_conn = get_conn() if explicit_aspect else None
     output_path = None
     # Probe results are stable per source path for the life of a run; memoize so a
@@ -577,10 +589,33 @@ def _run_export_job(job_id, name, explicit_aspect, dims, plan, audio_mode="ambie
                     vo_warning = f"Voiceover skipped (kept ambient audio): {e}"
                     log.warning("%s", vo_warning)
 
+            # Music bed: lay the chosen track under the (silent) video, faded in/out and
+            # looped/trimmed to the exact length. Best-effort — a bad/missing track keeps
+            # the render rather than failing the whole export.
+            music_warning = None
+            if music_ready:
+                _update_job(job_id, phase="music", current="adding music bed")
+                try:
+                    total = sum(it["out_point"] - it["in_point"] for it in plan)
+                    mixed = tmp / f"music{output_path.suffix}"
+                    _run_cancellable(job_id, [
+                        "ffmpeg", "-y", "-i", str(output_path),
+                        "-stream_loop", "-1", "-i", str(music_path),
+                        "-filter_complex", _music_bed_filter(total),
+                        "-map", "0:v", "-map", "[a]", "-t", f"{total:.3f}",
+                        "-c:v", "copy", "-c:a", "aac", "-ar", "48000", "-ac", "2",
+                        "-movflags", "+faststart", str(mixed)])
+                    shutil.move(str(mixed), str(output_path))
+                except Exception as e:
+                    music_warning = f"Music bed skipped (kept silent video): {e}"
+                    log.warning("%s", music_warning)
+
             result = {"output": str(output_path), "width": dims[0], "height": dims[1],
                       "fps": EXPORT_FPS}
             if vo_warning:
                 result["warning"] = vo_warning
+            if music_warning:
+                result["warning"] = music_warning
             _update_job(job_id, done=len(plan) + 1, finished=True, current=None, phase="done",
                         results=[result])
     except JobCancelled:

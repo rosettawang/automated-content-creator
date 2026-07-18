@@ -30,6 +30,10 @@ FACES_DIR = Path(__file__).resolve().parent / "data" / "faces"
 PROXY_CACHE = Path(__file__).resolve().parent / "data" / "proxies"
 # Local trending-audio scratch tracks (Phase 4): reference-only, never exported.
 REF_AUDIO_DIR = Path(__file__).resolve().parent / "data" / "ref_audio"
+# User-supplied music library (audio-design Phase 2): drop tracks here (optionally with
+# a <stem>.json {mood, tags} sidecar); the model picks one for 'music' mode. Your own /
+# licensed files only — this bakes into the export.
+MUSIC_DIR = REPO_ROOT / "music"
 
 
 def classify_kind(path: Path) -> str:
@@ -41,5 +45,5 @@ __all__ = [
     "MEDIA_DIR_RAW", "MEDIA_DIR", "ON_DEVICE_VISION_DEFAULT",
     "VIDEO_EXTS", "IMAGE_EXTS", "MEDIA_EXTS", "classify_kind",
     "REPO_ROOT", "CLIPS_OUT", "REFERENCE_FRAMES", "THUMB_CACHE",
-    "FACES_DIR", "PROXY_CACHE", "REF_AUDIO_DIR",
+    "FACES_DIR", "PROXY_CACHE", "REF_AUDIO_DIR", "MUSIC_DIR",
 ]
