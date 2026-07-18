@@ -633,3 +633,17 @@ html.embedded #stage { grid-template-columns: 1fr; }
   color: #eee; resize: vertical;
 }
 .vo-script-actions { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.3rem; }
+
+/* ---- trending-audio reference block (audio-design Phase 4) ---- */
+#ref-audio-block { border-top: 1px solid #333; margin-top: 0.5rem; padding-top: 0.5rem; }
+#ref-audio-block .settings-hint { color: #888; font-size: 0.72rem; margin: 0.2rem 0; }
+#ref-audio-set .ref-audio-name { font-weight: 600; font-size: 0.85rem; margin-bottom: 0.3rem; }
+#ref-audio-set .ref-row { display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; margin: 0.25rem 0; }
+#ref-audio-start { width: 3.4rem; }
+#ref-handoff { color: #d8c07a !important; }
+#ref-audio-add, #ref-audio-clear {
+  font-size: 0.78rem; padding: 0.3rem 0.6rem; border-radius: 6px;
+  border: 1px solid #4a6a4a; background: #2c2c2c; color: #cfe; cursor: pointer;
+}
+#ref-audio-clear { border-color: #6a4444; color: #e8b0b0; margin-top: 0.3rem; }
+#ref-audio { display: none; }

@@ -33,6 +33,8 @@ function setActiveVideo(el) {
   // audio. Muting the outgoing one keeps the next preload silent too.
   programVideo.muted = false;
   inactiveVideo().muted = true;
+  // With reference-audio preview on, the video plays silently under the scratch track.
+  if (typeof refApplyMute === "function") refApplyMute();
   // crop.js positions its overlay against the live programVideo — refresh on swap.
   if (typeof refreshCropOverlay === "function") refreshCropOverlay();
 }
@@ -431,6 +433,7 @@ async function loadTimeline() {
   if (audioSel) audioSel.value = edit.audio_mode || "ambient";
   const rat = document.getElementById("audio-rationale");
   if (rat) rat.textContent = edit.audio_rationale || "";
+  if (typeof renderReferenceAudio === "function") renderReferenceAudio(edit);
   const voScript = document.getElementById("vo-script");
   if (voScript) voScript.value = edit.vo_script || "";
   syncVoScriptVisibility();
@@ -725,6 +728,7 @@ function seekGlobal(t, thenPlay) {
   loadSegment(i, t - segments[i].start, thenPlay);
   updatePlayhead(t);
   document.getElementById("time-readout").textContent = `${fmt(t)} / ${fmt(total)}`;
+  if (typeof refOnSeek === "function") refOnSeek(t);
 }
 
 // ---------- transport ----------
@@ -735,6 +739,7 @@ function play() {
   document.getElementById("play-pause").textContent = "❚❚";
   if (activeSeg < 0) loadSegment(0, 0, true);
   else programVideo.play();
+  if (typeof refOnPlay === "function") refOnPlay();
   tick();
 }
 
@@ -742,6 +747,7 @@ function pause() {
   playing = false;
   document.getElementById("play-pause").textContent = "▶";
   programVideo.pause();
+  if (typeof refOnPause === "function") refOnPause();
   if (rafId) cancelAnimationFrame(rafId);
 }
 
@@ -771,6 +777,7 @@ function tick() {
       const t = currentGlobalTime();
       updatePlayhead(t);
       document.getElementById("time-readout").textContent = `${fmt(t)} / ${fmt(totalDuration())}`;
+      if (typeof refDriftCorrect === "function") refDriftCorrect(t);
     }
   }
   rafId = requestAnimationFrame(tick);
@@ -1363,6 +1370,128 @@ async function init() {
   }
   await loadCampaigns();
   startLiveRefresh();
+}
+
+// ================= Trending-audio compose: reference track + beat preview =========
+// A local scratch track that times cuts to the beat and can be previewed under the
+// (muted) program video. Never exported — see audio-design Phase 4.
+const _refAudio = document.getElementById("ref-audio");
+let refPreviewOn = false;
+let refStart = 0;
+let refHasRef = false;
+
+function _bpmFromBeats(beatsJson) {
+  try {
+    const b = JSON.parse(beatsJson || "[]");
+    if (b.length < 2) return null;
+    const d = []; for (let i = 1; i < b.length; i++) d.push(b[i] - b[i - 1]);
+    d.sort((x, y) => x - y);
+    const med = d[Math.floor(d.length / 2)];
+    return med > 0 ? Math.round(60 / med) : null;
+  } catch (_) { return null; }
+}
+
+function renderReferenceAudio(edit) {
+  const block = document.getElementById("ref-audio-block");
+  if (!block) return;
+  refHasRef = !!edit.ref_audio_path;
+  refStart = Number(edit.ref_audio_start || 0);
+  document.getElementById("ref-audio-empty").classList.toggle("hidden", refHasRef);
+  document.getElementById("ref-audio-set").classList.toggle("hidden", !refHasRef);
+  if (!refHasRef) {
+    refPreviewOn = false;
+    _refAudio.pause(); _refAudio.removeAttribute("src");
+    return;
+  }
+  document.getElementById("ref-audio-name").textContent = edit.ref_audio_name || "reference track";
+  document.getElementById("ref-audio-start").value = refStart;
+  const bpm = _bpmFromBeats(edit.ref_audio_beats);
+  document.getElementById("ref-audio-status").textContent =
+    bpm ? `Beat grid: ~${bpm} BPM — cuts snap to it on Generate.` : "Detecting beats…";
+  document.getElementById("ref-handoff").textContent =
+    `Export clean, then add “${edit.ref_audio_name || "this sound"}” in the app at ${refStart}s ` +
+    "— attaching trending audio can't be automated.";
+  // Point the (paused) audio element at this edit's scratch track.
+  _refAudio.src = `/api/edits/${currentEditId}/reference-audio/media`;
+  const chk = document.getElementById("ref-preview-check");
+  chk.checked = refPreviewOn;
+}
+
+// ---- upload / offset / clear ----
+document.getElementById("ref-audio-add").addEventListener("click", () =>
+  document.getElementById("ref-audio-file").click());
+
+document.getElementById("ref-audio-file").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file || !currentEditId) return;
+  const status = document.getElementById("ref-audio-status");
+  const form = new FormData();
+  form.append("file", file);
+  form.append("name", file.name.replace(/\.[^.]+$/, ""));
+  await fetch(`/api/edits/${currentEditId}/reference-audio`, { method: "POST", body: form });
+  await loadTimeline();
+  // Beats detect async — poll a few times to update the BPM line.
+  let tries = 0;
+  const iv = setInterval(async () => {
+    const ed = await api(`/api/edits/${currentEditId}`);
+    const bpm = _bpmFromBeats(ed.ref_audio_beats);
+    if (bpm || ++tries > 6) {
+      clearInterval(iv);
+      if (status) status.textContent = bpm
+        ? `Beat grid: ~${bpm} BPM — cuts snap to it on Generate.`
+        : "Couldn't detect a clear beat — cuts won't snap.";
+    }
+  }, 1000);
+  e.target.value = "";
+});
+
+document.getElementById("ref-audio-start").addEventListener("change", async (e) => {
+  if (!currentEditId) return;
+  refStart = Math.max(0, Number(e.target.value) || 0);
+  await api(`/api/edits/${currentEditId}`, { method: "PUT", body: JSON.stringify({ ref_audio_start: refStart }) });
+  const ed = await api(`/api/edits/${currentEditId}`);
+  document.getElementById("ref-handoff").textContent =
+    `Export clean, then add “${ed.ref_audio_name || "this sound"}” in the app at ${refStart}s ` +
+    "— attaching trending audio can't be automated.";
+  if (refPreviewOn && playing) refOnSeek(currentGlobalTime());
+});
+
+document.getElementById("ref-audio-clear").addEventListener("click", async () => {
+  if (!currentEditId) return;
+  await fetch(`/api/edits/${currentEditId}/reference-audio`, { method: "DELETE" });
+  refPreviewOn = false;
+  await loadTimeline();
+});
+
+document.getElementById("ref-preview-check").addEventListener("change", (e) => {
+  refPreviewOn = e.target.checked && refHasRef;
+  refApplyMute();
+  if (refPreviewOn && playing) refOnPlay();
+  else refOnPause();
+});
+
+// ---- playback sync (called from play/pause/seek/tick/setActiveVideo) ----
+function refApplyMute() {
+  const on = refPreviewOn && refHasRef;
+  _videoA.muted = on ? true : (_videoA === programVideo ? false : true);
+  _videoB.muted = on ? true : (_videoB === programVideo ? false : true);
+}
+function refOnPlay() {
+  if (!(refPreviewOn && refHasRef)) return;
+  try { _refAudio.currentTime = refStart + currentGlobalTime(); } catch (_) {}
+  _refAudio.play().catch(() => {});
+}
+function refOnPause() { _refAudio.pause(); }
+function refOnSeek(t) {
+  if (!(refPreviewOn && refHasRef)) return;
+  try { _refAudio.currentTime = refStart + t; } catch (_) {}
+}
+function refDriftCorrect(t) {
+  if (!(refPreviewOn && refHasRef) || _refAudio.paused) return;
+  const want = refStart + t;
+  if (Math.abs(_refAudio.currentTime - want) > 0.15) {
+    try { _refAudio.currentTime = want; } catch (_) {}
+  }
 }
 
 init();

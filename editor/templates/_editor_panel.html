@@ -55,6 +55,26 @@
             <span id="vo-script-status" class="settings-substatus"></span>
           </div>
         </div>
+        <!-- Trending-audio compose (audio-design Phase 4): a LOCAL scratch track used
+             only to beat-time cuts + preview. Never exported. -->
+        <div id="ref-audio-block">
+          <span class="settings-label">Trending audio</span>
+          <input id="ref-audio-file" type="file" accept="audio/*,video/*" hidden>
+          <div id="ref-audio-empty">
+            <button id="ref-audio-add" type="button">Add reference track…</button>
+            <div class="settings-hint">Local scratch — times cuts to the beat, never exported.</div>
+          </div>
+          <div id="ref-audio-set" class="hidden">
+            <div id="ref-audio-name" class="ref-audio-name"></div>
+            <label class="ref-row">Start at
+              <input id="ref-audio-start" type="number" step="0.1" min="0"> s</label>
+            <div id="ref-audio-status" class="settings-hint"></div>
+            <label class="ref-row"><input type="checkbox" id="ref-preview-check">
+              Preview with this audio</label>
+            <div id="ref-handoff" class="settings-hint"></div>
+            <button id="ref-audio-clear" type="button">Remove reference</button>
+          </div>
+        </div>
         <div class="settings-row" title="Re-check every clip's file on disk; relink files that moved by content hash">
           <span class="settings-label">Media</span>
           <button id="verify-media-btn" type="button">Verify / relink</button>
@@ -140,6 +160,8 @@
              preloaded/sought while the current one plays (no stall at cuts). -->
         <video id="program-video" class="pv-active" preload="auto" playsinline></video>
         <video id="program-video-b" preload="auto" playsinline muted></video>
+        <!-- Reference trending-audio for beat preview (muted video plays under it). -->
+        <audio id="ref-audio" preload="auto"></audio>
         <div id="crop-overlay" class="hidden">
           <div id="crop-box"><div id="crop-grid"></div></div>
         </div>
