@@ -59,6 +59,12 @@ body {
 .studio-pane[data-panel="library"],
 .studio-pane[data-panel="campaigns"] { overflow-y: auto; }
 
+/* Campaigns pane is the positioning context for its detail drawer (absolute, inset:0),
+   so the drawer stays inside this pane instead of floating over the Editor. While it's
+   open we freeze the pane's own scroll so the inset:0 layer aligns to its viewport. */
+.studio-pane[data-panel="campaigns"] { position: relative; }
+.studio-pane[data-panel="campaigns"].drawer-open { overflow: hidden; }
+
 /* Editor: a full-height flex column so #stage (flex:1) and the timeline lay out,
    exactly as they did when <body> was their column parent standalone. */
 .studio-pane[data-panel="editor"] { display: flex; flex-direction: column; flex: 1.4 1 0; }

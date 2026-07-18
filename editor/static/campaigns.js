@@ -29,7 +29,21 @@ async function loadCampaigns() {
     const key = e.campaign_id != null ? String(e.campaign_id) : "";
     (editsByCampaign[key] = editsByCampaign[key] || []).push(e);
   });
-  render();
+  render();  // paint immediately from base data (cuts strip); enrich with posts next
+  // Enrich each card with posts + summary so the stat strip and state-adaptive Next
+  // reflect real scheduling/metrics. Frontend-only (no new endpoint): one posts +
+  // summary call per campaign, in parallel. Re-render as each resolves.
+  allCampaigns.forEach((p) => {
+    Promise.all([
+      api(`/api/campaigns/${p.id}/posts`).catch(() => []),
+      api(`/api/campaigns/${p.id}/summary`).catch(() => ({})),
+    ]).then(([posts, summary]) => {
+      p._posts = posts || [];
+      p._summary = summary || {};
+      p._enriched = true;
+      render();
+    });
+  });
 }
 
 function render() {
@@ -177,6 +191,8 @@ saveBtn.addEventListener("click", async () => {
 let drawerCampaign = null;
 
 const drawer = document.getElementById("campaign-drawer");
+// The pane that hosts the drawer (in the unified shell); null on a standalone page.
+const campaignsPane = drawer.closest('.studio-pane[data-panel="campaigns"]');
 
 function openDrawer(campaign) {
   drawerCampaign = campaign;
@@ -187,6 +203,7 @@ function openDrawer(campaign) {
   document.getElementById("cmp-arm-check").checked = !!campaign.publishing_armed;
   document.getElementById("cmp-arm-hint").textContent = "";
   drawer.classList.remove("hidden");
+  if (campaignsPane) { campaignsPane.scrollTop = 0; campaignsPane.classList.add("drawer-open"); }
   loadThings();
   loadChat();
   loadPosts();
@@ -233,6 +250,7 @@ document.getElementById("cmp-context-save").addEventListener("click", async () =
 
 function closeDrawer() {
   drawer.classList.add("hidden");
+  if (campaignsPane) campaignsPane.classList.remove("drawer-open");
   drawerCampaign = null;
 }
 

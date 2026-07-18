@@ -205,15 +205,16 @@ body {
 }
 
 /* ============================ Campaign drawer ============================ */
+/* Confined to the Campaigns pane (absolute within it), NOT a window-level fixed
+   overlay — otherwise it floats over the Editor pane and covers the timeline. The
+   Campaigns pane is position:relative (studio.css); .drawer-open freezes its scroll
+   so this inset:0 layer aligns to the pane's viewport. */
 #campaign-drawer {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: min(440px, 92vw);
+  position: absolute;
+  inset: 0;
   background: #232323;
   border-left: 1px solid #383838;
-  z-index: 100;
+  z-index: 20;
   display: flex;
   flex-direction: column;
   box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
