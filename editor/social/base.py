@@ -98,7 +98,7 @@ def load_adapters() -> None:
     """Import platform adapter modules so they self-register. Guarded per module so a
     missing dependency or an unconfigured platform never blocks app boot — the platform
     just stays unavailable for LIVE posting (dry-run is unaffected)."""
-    for module in ("social.instagram",):
+    for module in ("social.instagram", "social.tiktok"):
         try:
             __import__(module)
         except Exception as e:  # noqa: BLE001 — boot must not fail on an optional adapter

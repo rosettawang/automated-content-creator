@@ -125,8 +125,9 @@ def test_no_adapter_blocks_live_publish(client, campaign, conn, monkeypatch):
     monkeypatch.setenv("SOCIAL_DRY_RUN", "0")
     conn.execute("UPDATE campaigns SET publishing_armed = 1 WHERE id = ?", (campaign,))
     conn.commit()
+    # youtube is a listed platform with no adapter yet (instagram + tiktok both have one).
     pid = client.post(f"/api/campaigns/{campaign}/posts", json={
-        "platform": "tiktok", "scheduled_at": "2000-01-01T00:00:00+00:00"}).get_json()["id"]
+        "platform": "youtube", "scheduled_at": "2000-01-01T00:00:00+00:00"}).get_json()["id"]
     scheduler.claim_due_posts(conn)
     scheduler.publish_post(pid)
     row = _status(conn, pid)
