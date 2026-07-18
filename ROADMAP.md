@@ -33,9 +33,13 @@ Scheduled posts, analytics, and recommendations under Campaigns, via Composio. E
 
 **Status (2026-07-17):** ~~social-core (A–B)~~ and ~~social-analytics (D–E)~~ **shipped** — DB-driven scheduler, dry-run harness, campaign hub (KPIs, calendar/list, post-detail, Learn card), metrics ingestion + recommendations. Remaining: **social-adapters (C)** — Instagram adapter is built and dry-run gated but **not yet live-verified** on a real account; that verification (and turning `SOCIAL_DRY_RUN` off per campaign) is the only step left before real posting.
 
-## Priority 3.6 — Audio design for generated edits (spec: `specs/audio-design.md`)
+## ~~Priority 3.6 — Audio design for generated edits~~ ✅ SHIPPED
 
-Generation currently decides what you see, not what you hear — exports concatenate raw camera audio (level jumps at cuts, mid-word chops, silence over stills). The model gains an `audio_plan` per edit (ambient / speech-led / music / voiceover / clean), stored on the edit, user-overridable, chat-changeable — same pattern as aspect-from-prompt. Three phases: ambient treatment + sentence-boundary cuts (no new deps, biggest win) → music library + first-class clean mode (platform-licensed music is added in-app) → TTS voiceover with a visible, editable script.
+~~Generation currently decides what you see, not what you hear.~~ Shipped all four phases: per-edit `audio_plan` (ambient / speech-led / music / voiceover / clean), user-overridable and chat-changeable. Ambient treatment + beat-/sentence-snapped cuts; local `music/` library with mood match + faded/looped export bed; OpenAI TTS voiceover with an editable script; trending-audio compose (local reference track → beat detection → beat-timed cuts + synced preview, never exported, clean handoff). Deferred polish (git history has the spec): inter-clip audio crossfades, a `-20dB duck original under music` option, and live A/V preview-sync verification.
+
+## Priority 3.7 — MCP server: Claude drives the app (spec: `specs/mcp-server.md`)
+
+A thin-proxy MCP server (`editor/mcp_server.py`) lets Claude import footage, search the library, and assemble edits over the same HTTP endpoints the UI uses — one source of truth, and writes propagate to the editor via its live-refresh poll. **Core shipped 2026-07-17:** stdio + `content-creator-mcp` entry point, auto-start, `import_media`/`search_clips`/`assemble_cut`, portable `.mcp.json`, README install flow. Remaining in the spec: (A) multi-account posting — one Instagram account per campaign (gated on social-adapters C, real posting irreversible); (B) more thin-proxy tools on demand; (C) PyPI packaging for `uvx` clone-free install; (D) remote/hosted MCP — only if a shared multi-user library is ever wanted.
 
 ## Priority 4 — Papercuts (opportunistic, none blocking)
 
