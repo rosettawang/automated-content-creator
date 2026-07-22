@@ -1,5 +1,8 @@
 # macOS
 .DS_Store
+# Finder custom-folder-icon files (named "Icon" + a trailing CR). The '?' matches
+# that CR. (A stray one had gotten inside .git/refs/ and broke `git log --all`.)
+Icon?
 # Office lock files
 .~lock.*#
 # Temporary video working area (pulled clips are disposable)
