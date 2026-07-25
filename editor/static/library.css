@@ -278,25 +278,27 @@ body {
 #import-card h2 { font-size: 1.05rem; margin: 0 0 0.75rem; }
 #import-card .hint { font-size: 0.8rem; color: #999; margin: 0 0 0.5rem; }
 
-#drop-zone {
+#import-well {
   border: 2px dashed #4a4a4a;
   border-radius: 8px;
   padding: 1.5rem 1rem;
   text-align: center;
-  margin-bottom: 1rem;
+  margin-bottom: 0.6rem;
+  cursor: pointer;
   transition: border-color 0.12s, background 0.12s;
 }
 
-#drop-zone.dragover {
+#import-well:hover { border-color: #5a5a5a; }
+#import-well.dragover {
   border-color: #6a9a6a;
   background: rgba(90, 140, 90, 0.12);
 }
 
-#drop-zone .drop-primary { font-size: 0.9rem; margin: 0 0 0.25rem; color: #ddd; }
-#drop-zone .drop-secondary { font-size: 0.82rem; margin: 0; color: #999; }
-#drop-zone #file-chosen { font-size: 0.8rem; margin: 0.5rem 0 0; color: #8fbf8f; }
+#import-well .drop-primary { font-size: 0.9rem; margin: 0 0 0.25rem; color: #ddd; }
+#import-well .drop-secondary { font-size: 0.82rem; margin: 0; color: #999; }
 
-#browse-btn {
+#browse-btn,
+#browse-disk {
   background: none;
   border: none;
   color: #7fb0e8;
@@ -306,18 +308,108 @@ body {
   text-decoration: underline;
 }
 
-#import-links {
-  width: 100%;
-  box-sizing: border-box;
-  font-size: 0.85rem;
-  padding: 0.5rem;
+#import-hint { color: #d8a657; margin: 0 0 0.6rem; }
+#import-hint.hidden { display: none; }
+
+/* Queue of everything staged for one import run. */
+#import-queue {
+  list-style: none;
+  margin: 0 0 0.9rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 180px;
+  overflow-y: auto;
+}
+#import-queue.hidden { display: none; }
+
+.queue-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  background: #1e1e1e;
+  border: 1px solid #383838;
+  border-radius: 6px;
+}
+.queue-badge {
+  flex: none;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.12rem 0.4rem;
+  border-radius: 4px;
+  background: #333;
+  color: #cfcfcf;
+}
+.badge-drive { background: #2c3a4a; color: #cfe4f2; }
+.badge-photos { background: #3a2c4a; color: #e4cff2; }
+.badge-disk { background: #4a3a2c; color: #f2ddcf; }
+.badge-zip { background: #2f4a2f; color: #cde8cd; }
+.queue-label {
+  flex: 1;
+  font-size: 0.82rem;
+  color: #ddd;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.queue-remove {
+  flex: none;
+  background: none;
+  border: none;
+  color: #999;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.2rem;
+}
+.queue-remove:hover { color: #e08080; }
+
+/* Chip input for "things to look for". */
+.chip-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.3rem;
+  padding: 0.35rem 0.4rem;
   border-radius: 6px;
   border: 1px solid #444;
   background: #1e1e1e;
-  color: #eee;
-  resize: vertical;
-  margin-bottom: 0.75rem;
 }
+.chip-field #import-things {
+  flex: 1;
+  min-width: 8rem;
+  border: none;
+  background: none;
+  color: #eee;
+  font-size: 0.85rem;
+  padding: 0.2rem;
+  outline: none;
+}
+.thing-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  padding: 0.15rem 0.2rem 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: #2c3a4a;
+  color: #cfe4f2;
+  border: 1px solid #3f5a6a;
+}
+.thing-chip-x {
+  background: none;
+  border: none;
+  color: #9fc4e0;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.2rem;
+}
+.thing-chip-x:hover { color: #fff; }
 
 #import-meta {
   border-top: 1px solid #383838;
@@ -371,22 +463,7 @@ body {
 
 #import-submit:disabled { opacity: 0.5; cursor: default; }
 
-#add-from-disk {
-  display: block;
-  width: 100%;
-  font-size: 0.82rem;
-  padding: 0.5rem 0.8rem;
-  margin-bottom: 0.9rem;
-  border-radius: 6px;
-  border: 1px dashed #555;
-  background: #232323;
-  color: #ccc;
-  cursor: pointer;
-}
-
-#add-from-disk:hover { background: #2e2e2e; border-color: #6a9a6a; }
-#add-from-disk:disabled { opacity: 0.5; cursor: default; }
-#add-from-disk.hidden { display: none; }
+#browse-disk-wrap.hidden { display: none; }
 
 #movecopy-overlay {
   position: fixed;

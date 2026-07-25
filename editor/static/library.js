@@ -749,17 +749,135 @@ async function refreshAfterImport() {
 
 // ---- unified import dialog ----
 const importOverlay = document.getElementById("import-overlay");
-const dropZone = document.getElementById("drop-zone");
+const importWell = document.getElementById("import-well");
+const importQueueEl = document.getElementById("import-queue");
+const importHintEl = document.getElementById("import-hint");
 const fileInput = document.getElementById("file-input");
-const importLinks = document.getElementById("import-links");
 const importResult = document.getElementById("import-result");
-const fileChosen = document.getElementById("file-chosen");
 const importSubmit = document.getElementById("import-submit");
 const importThings = document.getElementById("import-things");
 const importContext = document.getElementById("import-context");
 const importCampaign = document.getElementById("import-campaign");
 
-let selectedFiles = []; // File[] staged for upload
+// One queue for every input kind. Each item:
+//   {id, kind: 'file'|'zip'|'drive'|'photos'|'disk', label, file?, url?, path?, del?}
+let importQueue = [];
+let _qid = 0;
+
+// Hosts we recognise as importable links (spec: URL parse + known host).
+const LINK_HOSTS = ["drive.google.com", "photos.app.goo.gl", "photos.google.com"];
+function classifyLink(text) {
+  let u;
+  try { u = new URL(text.trim()); } catch { return null; }
+  const host = u.hostname.toLowerCase();
+  if (!LINK_HOSTS.includes(host)) return null;
+  return host.startsWith("photos.") ? "photos" : "drive";
+}
+
+function queueBadge(kind) {
+  return { file: "file", zip: "zip", drive: "Drive", photos: "Photos", disk: "move-from-disk" }[kind] || kind;
+}
+
+function renderQueue() {
+  importQueueEl.innerHTML = "";
+  importQueueEl.classList.toggle("hidden", importQueue.length === 0);
+  importQueue.forEach((item) => {
+    const li = document.createElement("li");
+    li.className = "queue-item";
+    const badge = document.createElement("span");
+    badge.className = `queue-badge badge-${item.kind}`;
+    badge.textContent = queueBadge(item.kind);
+    const label = document.createElement("span");
+    label.className = "queue-label";
+    label.textContent = item.label;
+    label.title = item.label;
+    const rm = document.createElement("button");
+    rm.className = "queue-remove";
+    rm.type = "button";
+    rm.textContent = "×";
+    rm.title = "Remove from queue";
+    rm.onclick = () => { importQueue = importQueue.filter((q) => q.id !== item.id); renderQueue(); };
+    li.append(badge, label, rm);
+    importQueueEl.appendChild(li);
+  });
+}
+
+function showImportHint(msg) {
+  importHintEl.textContent = msg;
+  importHintEl.classList.toggle("hidden", !msg);
+}
+
+function addFilesToQueue(fileList) {
+  Array.from(fileList || []).forEach((f) => {
+    const kind = f.name.toLowerCase().endsWith(".zip") ? "zip" : "file";
+    importQueue.push({ id: ++_qid, kind, label: f.name, file: f });
+  });
+  renderQueue();
+}
+
+// Scan pasted/typed text for links; each recognised URL becomes a queue item.
+// Unrecognised text is never treated as a filename — just a gentle hint.
+function addTextToQueue(text) {
+  const lines = text.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+  let added = 0, rejected = 0;
+  lines.forEach((line) => {
+    const kind = classifyLink(line);
+    if (kind) { importQueue.push({ id: ++_qid, kind, label: line, url: line }); added++; }
+    else rejected++;
+  });
+  if (added) { renderQueue(); showImportHint(""); }
+  if (rejected && !added) showImportHint("That doesn't look like a Drive/Photos link.");
+  return added;
+}
+
+function addDiskPathsToQueue(paths, del) {
+  paths.forEach((p) => {
+    const name = p.split("/").pop() || p;
+    importQueue.push({ id: ++_qid, kind: "disk", label: name, path: p, del: !!del });
+  });
+  renderQueue();
+}
+
+// ---- things chip input ----
+let thingChips = [];
+const thingsChipsEl = document.getElementById("things-chips");
+
+function renderThingChips() {
+  thingsChipsEl.innerHTML = "";
+  thingChips.forEach((name, i) => {
+    const chip = document.createElement("span");
+    chip.className = "thing-chip";
+    chip.textContent = name;
+    const x = document.createElement("button");
+    x.type = "button";
+    x.className = "thing-chip-x";
+    x.textContent = "×";
+    x.onclick = () => { thingChips.splice(i, 1); renderThingChips(); };
+    chip.appendChild(x);
+    thingsChipsEl.appendChild(chip);
+  });
+}
+
+function commitThingChip() {
+  // Trim once; keep internal spaces and any parenthetical intact (no further split).
+  const name = importThings.value.trim();
+  if (name && !thingChips.some((t) => t.toLowerCase() === name.toLowerCase())) {
+    thingChips.push(name);
+    renderThingChips();
+  }
+  importThings.value = "";
+}
+
+importThings.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === ",") {
+    e.preventDefault();
+    commitThingChip();
+  } else if (e.key === "Backspace" && !importThings.value && thingChips.length) {
+    thingChips.pop();
+    renderThingChips();
+  }
+});
+importThings.addEventListener("blur", commitThingChip); // committing on blur avoids a "lost" typed thing
 
 // Fill the campaign dropdown from the current campaigns (kept optional).
 async function populateImportCampaigns() {
@@ -785,31 +903,19 @@ function openImport() {
 function closeImport() {
   importOverlay.classList.add("hidden");
   // Reset dialog state so it opens fresh next time.
-  selectedFiles = [];
+  importQueue = [];
+  thingChips = [];
+  renderQueue();
+  renderThingChips();
   fileInput.value = "";
-  importLinks.value = "";
   importThings.value = "";
   importContext.value = "";
   importCampaign.value = "";
   importResult.textContent = "";
+  showImportHint("");
   document.getElementById("import-progress").classList.add("hidden");
-  fileChosen.classList.add("hidden");
-  fileChosen.textContent = "";
-  dropZone.classList.remove("dragover");
+  importWell.classList.remove("dragover");
   importSubmit.disabled = false;
-  document.getElementById("add-from-disk").disabled = false;
-}
-
-function stageFiles(fileList) {
-  selectedFiles = Array.from(fileList || []);
-  if (selectedFiles.length) {
-    fileChosen.textContent =
-      `${selectedFiles.length} file${selectedFiles.length === 1 ? "" : "s"} ready: ` +
-      selectedFiles.map((f) => f.name).join(", ");
-    fileChosen.classList.remove("hidden");
-  } else {
-    fileChosen.classList.add("hidden");
-  }
 }
 
 document.getElementById("import-btn").addEventListener("click", openImport);
@@ -818,25 +924,35 @@ importOverlay.addEventListener("click", (e) => {
   if (e.target.id === "import-overlay") closeImport();
 });
 
-// browse / drag-drop
-document.getElementById("browse-btn").addEventListener("click", () => fileInput.click());
-fileInput.addEventListener("change", (e) => stageFiles(e.target.files));
+// browse — plain file input (copy). Clicking the well (but not its buttons) also browses.
+document.getElementById("browse-btn").addEventListener("click", (e) => { e.stopPropagation(); fileInput.click(); });
+fileInput.addEventListener("change", (e) => { addFilesToQueue(e.target.files); fileInput.value = ""; });
+importWell.addEventListener("click", (e) => {
+  if (e.target.tagName !== "BUTTON") fileInput.click();
+});
 
+// drag & drop into the well
 ["dragenter", "dragover"].forEach((ev) =>
-  dropZone.addEventListener(ev, (e) => {
-    e.preventDefault();
-    dropZone.classList.add("dragover");
-  })
+  importWell.addEventListener(ev, (e) => { e.preventDefault(); importWell.classList.add("dragover"); })
 );
 ["dragleave", "drop"].forEach((ev) =>
-  dropZone.addEventListener(ev, (e) => {
+  importWell.addEventListener(ev, (e) => {
     e.preventDefault();
-    if (ev === "dragleave" && dropZone.contains(e.relatedTarget)) return;
-    dropZone.classList.remove("dragover");
+    if (ev === "dragleave" && importWell.contains(e.relatedTarget)) return;
+    importWell.classList.remove("dragover");
   })
 );
-dropZone.addEventListener("drop", (e) => {
-  if (e.dataTransfer?.files?.length) stageFiles(e.dataTransfer.files);
+importWell.addEventListener("drop", (e) => {
+  if (e.dataTransfer?.files?.length) addFilesToQueue(e.dataTransfer.files);
+  else if (e.dataTransfer?.getData) addTextToQueue(e.dataTransfer.getData("text") || "");
+});
+
+// paste into the well: images/files → file items; text → scanned for links
+importWell.addEventListener("paste", (e) => {
+  const files = e.clipboardData?.files;
+  if (files && files.length) { e.preventDefault(); addFilesToQueue(files); return; }
+  const text = e.clipboardData?.getData("text") || "";
+  if (text.trim()) { e.preventDefault(); addTextToQueue(text); }
 });
 
 // ---- progress helpers ----
@@ -957,15 +1073,16 @@ function uploadFilesWithProgress(files) {
   });
 }
 
-// submit — handles files, Drive links, and Photos album links in one go
+// submit — runs the whole mixed queue (files/zip + Drive + Photos + move-from-disk).
 importSubmit.addEventListener("click", async () => {
-  // One box for all links; route each to the right backend by its URL shape.
-  const allLinks = importLinks.value.split("\n").map((s) => s.trim()).filter(Boolean);
-  const isPhotos = (u) => /photos\.app\.goo\.gl|photos\.google\.com/i.test(u);
-  const photoUrls = allLinks.filter(isPhotos);
-  const urls = allLinks.filter((u) => !isPhotos(u));
-  if (!selectedFiles.length && !allLinks.length) {
-    importResult.textContent = "Add files or paste at least one Google Drive or Google Photos link first.";
+  commitThingChip(); // fold any half-typed thing into a chip first
+  const files = importQueue.filter((q) => q.kind === "file" || q.kind === "zip").map((q) => q.file);
+  const driveUrls = importQueue.filter((q) => q.kind === "drive").map((q) => q.url);
+  const photoUrls = importQueue.filter((q) => q.kind === "photos").map((q) => q.url);
+  const diskCopy = importQueue.filter((q) => q.kind === "disk" && !q.del).map((q) => q.path);
+  const diskMove = importQueue.filter((q) => q.kind === "disk" && q.del).map((q) => q.path);
+  if (!importQueue.length) {
+    importResult.textContent = "Add files or paste a Google Drive / Google Photos link first.";
     return;
   }
 
@@ -990,12 +1107,11 @@ importSubmit.addEventListener("click", async () => {
   try {
     // Watched "things to look for" are created FIRST, so they're in the active
     // watchlist before the just-imported clips get indexed. The two fields are
-    // interchangeable: if you name things explicitly we use those; if you only
-    // give context, we infer the things from it.
+    // interchangeable: if you name things explicitly (chips) we use those; if you
+    // only give context, we infer the things from it.
     const context = importContext.value.trim();
-    const wantThings = importThings.value.split(",").map((s) => s.trim()).filter(Boolean);
-    if (wantThings.length) {
-      for (const name of wantThings) {
+    if (thingChips.length) {
+      for (const name of thingChips) {
         try {
           // 409 (already exists) is fine — it's in the watchlist either way
           await api("/api/things", { method: "POST", body: JSON.stringify({ name }) });
@@ -1009,15 +1125,15 @@ importSubmit.addEventListener("click", async () => {
       } catch { /* non-fatal — import still proceeds */ }
     }
 
-    if (selectedFiles.length) {
-      const results = await uploadFilesWithProgress(selectedFiles);
+    if (files.length) {
+      const results = await uploadFilesWithProgress(files);
       collect(results);
       parts.push(summarize(results));
       anyError = anyError || results.some((r) => r.status === "error");
     }
 
-    if (urls.length) {
-      const results = await runServerJob("/api/drive-import", { urls });
+    if (driveUrls.length) {
+      const results = await runServerJob("/api/drive-import", { urls: driveUrls });
       collect(results);
       parts.push(summarize(results));
       anyError = anyError || results.some((r) => r.status === "error");
@@ -1028,6 +1144,18 @@ importSubmit.addEventListener("click", async () => {
       collect(results);
       parts.push(summarize(results));
       anyError = anyError || results.some((r) => r.status === "error");
+    }
+
+    for (const [paths, del] of [[diskCopy, false], [diskMove, true]]) {
+      if (!paths.length) continue;
+      setProgress(null, del ? "Moving files in…" : "Copying files in…");
+      const body = await api("/api/import-local-paths", {
+        method: "POST",
+        body: JSON.stringify({ paths, delete_originals: del }),
+      });
+      collect(body.results);
+      parts.push(summarize(body.results));
+      anyError = anyError || body.results.some((r) => r.status === "error");
     }
 
     // Apply batch context + campaign to the clips that came in.
@@ -1058,10 +1186,11 @@ importSubmit.addEventListener("click", async () => {
   }
 });
 
-// ---- native "add from disk" (desktop app only) ----
+// ---- native "move from disk" (desktop app only) ----
 // window.pywebview.api is injected only by the desktop wrapper; in the browser it's
-// undefined, so this whole feature stays hidden there.
-const addFromDisk = document.getElementById("add-from-disk");
+// undefined, so this secondary line stays hidden there.
+const browseDiskWrap = document.getElementById("browse-disk-wrap");
+const browseDisk = document.getElementById("browse-disk");
 const movecopyOverlay = document.getElementById("movecopy-overlay");
 const movecopyText = document.getElementById("movecopy-text");
 
@@ -1071,7 +1200,7 @@ function nativeApiReady() {
 
 // pywebview injects its API asynchronously, so re-check shortly after load.
 function refreshNativeUI() {
-  addFromDisk.classList.toggle("hidden", !nativeApiReady());
+  browseDiskWrap.classList.toggle("hidden", !nativeApiReady());
 }
 refreshNativeUI();
 window.addEventListener("pywebviewready", refreshNativeUI);
@@ -1102,7 +1231,10 @@ function askMoveOrCopy(count) {
   });
 }
 
-addFromDisk.addEventListener("click", async () => {
+// Pick real files via the native dialog, choose move vs copy once, and ADD them to
+// the queue (they import with everything else when the user hits Import).
+browseDisk.addEventListener("click", async (e) => {
+  e.stopPropagation(); // don't also trigger the well's browse
   let paths;
   try {
     paths = await window.pywebview.api.pick_files();
@@ -1111,33 +1243,9 @@ addFromDisk.addEventListener("click", async () => {
     return;
   }
   if (!paths || !paths.length) return; // cancelled
-
   const deleteOriginals = await askMoveOrCopy(paths.length);
   if (deleteOriginals === null) return; // cancelled the chooser
-
-  importSubmit.disabled = true;
-  addFromDisk.disabled = true;
-  showProgressUI();
-  setProgress(null, deleteOriginals ? "Moving files in…" : "Copying files in…");
-  try {
-    const body = await api("/api/import-local-paths", {
-      method: "POST",
-      body: JSON.stringify({ paths, delete_originals: deleteOriginals }),
-    });
-    const anyError = body.results.some((r) => r.status === "error");
-    importProgress.classList.add("hidden");
-    const msg = summarize(body.results);
-    importResult.textContent = msg;
-    showStatus(msg, anyError);
-    await refreshAfterImport();
-    if (!anyError) closeImport();
-  } catch (err) {
-    importProgress.classList.add("hidden");
-    importResult.textContent = `Error: ${err.message}`;
-  } finally {
-    importSubmit.disabled = false;
-    addFromDisk.disabled = false;
-  }
+  addDiskPathsToQueue(paths, deleteOriginals);
 });
 
 // Escape closes the import dialog too (info panel handles its own Escape above)

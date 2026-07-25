@@ -80,29 +80,27 @@
       <button id="import-close">&times;</button>
       <h2>Import clips</h2>
 
-      <div id="drop-zone">
-        <p class="drop-primary">Drag &amp; drop files or a .zip here</p>
-        <p class="drop-secondary">or <button type="button" id="browse-btn">browse</button> to select</p>
-        <p id="file-chosen" class="hidden"></p>
+      <!-- One well for every input kind: drop files/.zip, click to browse, or paste
+           links (Drive/Photos) or images. Everything added lands in the queue below. -->
+      <div id="import-well" tabindex="0">
+        <p class="drop-primary">Drop files or a .zip, or paste Drive / Photos links</p>
+        <p class="drop-secondary">or <button type="button" id="browse-btn">browse</button><span
+          id="browse-disk-wrap" class="hidden"> · <button type="button" id="browse-disk">move from disk…</button></span></p>
       </div>
-
-      <!-- Desktop only: a native picker returns real paths, so we can offer to
-           move files in (deleting the freshly-downloaded original). Hidden in the
-           browser, where file paths aren't available. -->
-      <button id="add-from-disk" class="hidden" type="button">Add from disk (move or copy)…</button>
-
-      <p class="hint">…or paste links (one per line) — Google Drive files/folders or
-        Google Photos shared albums, each shared as "anyone with the link":</p>
-      <textarea id="import-links" rows="3"
-        placeholder="https://drive.google.com/file/d/…/view&#10;https://photos.app.goo.gl/…"></textarea>
+      <p id="import-hint" class="hint hidden"></p>
+      <ul id="import-queue" class="hidden"></ul>
 
       <div id="import-meta">
         <p class="hint import-meta-note">Both optional — name the things to look for, or
           just give context and they'll be inferred from it.</p>
-        <label class="import-field">Things to look for <span class="import-hint">(comma-separated)</span>
-          <input id="import-things" type="text" placeholder="e.g. pipevine, oil press, monarch">
+        <label class="import-field" for="import-things">Things to look for
+          <span class="import-hint">(Enter or comma to add each)</span>
         </label>
-        <label class="import-field">Context for this content <span class="import-hint">(things inferred from this if left blank above)</span>
+        <div id="things-chip-field" class="chip-field">
+          <span id="things-chips"></span>
+          <input id="import-things" type="text" placeholder="e.g. pipevine — Enter to add">
+        </div>
+        <label class="import-field">Context for this content <span class="import-hint">(things inferred from this if left blank above; put asides here, not in Things)</span>
           <textarea id="import-context" rows="2"
             placeholder="e.g. footage from the July acorn-oil pressing day"></textarea>
         </label>
