@@ -8,6 +8,7 @@ Usage:
 """
 import socket
 import threading
+import time
 
 import webview
 
@@ -57,6 +58,21 @@ def run_flask():
     waitress_serve(app, host="127.0.0.1", port=PORT, threads=12)
 
 
+def _wait_until_serving(port, timeout=20.0):
+    """Block until the local server is accepting connections. The window must not
+    open before the server is ready: pywebview renders a not-yet-serving URL as a
+    blank page and never retries, which looked like "the app won't load" and forced
+    repeated relaunches. Returns True once connectable, False if it never came up."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            if s.connect_ex(("127.0.0.1", port)) == 0:
+                return True
+        time.sleep(0.1)
+    return False
+
+
 def main():
     import logging
     logging.basicConfig(
@@ -66,6 +82,9 @@ def main():
     _backfill_clip_sources()  # data backfill; needs the migrated schema to exist first
     thread = threading.Thread(target=run_flask, daemon=True)
     thread.start()
+    if not _wait_until_serving(PORT):
+        print(f" * WARNING: server didn't come up on {PORT} in time; opening window anyway",
+              flush=True)
     api = NativeApi()
     # One window, one document: /studio hosts Editor / Clip Library / Campaigns as
     # sibling sections (no iframes) with a left rail, native cross-panel drag, and
