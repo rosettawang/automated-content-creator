@@ -31,8 +31,34 @@ from photos_import import (
 
 log = logging.getLogger("editor.ingest")
 
+_NO_NETWORK_MSG = (
+    "The server can't reach the internet. If it was restarted by a Claude session, "
+    "its sandbox blocks network access — quit it and relaunch from Terminal."
+)
+
+
+def _network_preflight() -> str | None:
+    """One cheap HTTPS request before a link-import job. Returns None if the network
+    is reachable, else an actionable message.
+
+    Guards the sandbox-network failure mode (seen 2026-07-22): a server relaunched
+    inside a Claude session can't open sockets, so every item would fail with a raw
+    PermissionError(1). Better to fail the whole job once, up front, with a message
+    that tells the user how to fix it -- than to hammer a dead network N times."""
+    import requests
+
+    try:
+        requests.head("https://www.google.com", timeout=5)
+        return None
+    except Exception:
+        return _NO_NETWORK_MSG
+
 
 def _run_drive_job(job_id: str, urls: list[str]) -> None:
+    problem = _network_preflight()
+    if problem:
+        _update_job(job_id, finished=True, phase="done", error=problem, results=[])
+        return
     conn = get_conn()
     results = []
     _update_job(job_id, total=len(urls), phase="downloading")
@@ -57,6 +83,10 @@ def _run_drive_job(job_id: str, urls: list[str]) -> None:
 
 
 def _run_photos_job(job_id: str, urls: list[str]) -> None:
+    problem = _network_preflight()
+    if problem:
+        _update_job(job_id, finished=True, phase="done", error=problem, results=[])
+        return
     conn = get_conn()
     results = []
     session = photos_make_session()
@@ -87,7 +117,10 @@ def _run_photos_job(job_id: str, urls: list[str]) -> None:
             results.append(res)
             _update_job(job_id, done=i + 1, current=path.name)
         except Exception as e:
-            results.append({"url": url, "status": "error", "error": f"item {i}: {e}"})
+            # No "item {i}:" prefix -- the item's identity is its url/queue row. A bare,
+            # stable message lets the UI collapse many identical failures into one line
+            # ("147 items failed: <reason>") instead of a wall of near-duplicate text.
+            results.append({"url": url, "status": "error", "error": str(e)})
             _update_job(job_id, done=i + 1)
     conn.commit()
     conn.close()

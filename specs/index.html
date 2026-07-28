@@ -28,7 +28,6 @@ strong{color:#fff}
 <tr><td><a href="social-adapters.html">social-adapters</a></td><td>Per-platform adapters behind one interface</td><td><span class="tag block">blocked</span> — Instagram built + dry-run gated; Phase C acceptance = go-live verification</td></tr>
 <tr><td><a href="social-publishing.html">social-publishing</a></td><td>Umbrella: scheduling, analytics, recommendations under Campaigns</td><td>core + analytics shipped; only adapters Phase C open</td></tr>
 <tr><td><a href="platform-links.html">platform-links</a></td><td>Per-cut platform icon row (gray = not posted, colored = opens live post) + permalink storage + export record</td><td><span class="tag wait">not started</span> — coordinate with social/ files</td></tr>
-<tr><td><a href="import-unified.html">import-unified</a></td><td>One paste/drop/browse import box + chip input + network pre-flight and readable errors</td><td><span class="tag wait">not started</span> — independent, frontend-heavy</td></tr>
 <tr><td><a href="framing-and-provenance.html">framing-and-provenance</a></td><td>Subject-tracking reframe + provenance/re-download</td><td>nearly done — only Stage 5 export frame-check (gated behind a setting)</td></tr>
 <tr><td><a href="mcp-server.html">mcp-server</a></td><td>Claude drives the app via MCP</td><td>core shipped; open: multi-account posting (gated on go-live), more tools, PyPI packaging, remote</td></tr>
 </table>
@@ -39,7 +38,7 @@ strong{color:#fff}
 <li><strong>Do not chase the IG user id through a Meta developer app</strong> — that detour was tried and is a dead end. Composio's Instagram toolkit authenticates via <em>Instagram Login</em> (<code>base_url: graph.instagram.com</code>, current-user endpoint <code>/me?fields=id,username</code>), <em>not</em> Facebook Login, so a Facebook Page token is the wrong key; Meta also refuses to add Instagram use cases to a Facebook-Login app. The id is also absent from the connection metadata (<code>extra_data</code> is empty) and the stored token is Composio-proxied, so direct Graph calls fail "Cannot parse access token". Correct routes: the Composio <code>tools.proxy</code> call (needs queue&nbsp;#5), or paste the number into <code>IG_USER_ID</code> in <code>editor/.env</code>.</li>
 <li><strong>Composio gotchas that will bite any adapter:</strong> toolkit versions must be pinned as a bare datestamp (<code>20260721_00</code>) — <code>latest</code> raises <code>ToolVersionRequiredError</code> and a <code>v</code> prefix makes every slug 404 as "Tool not found". API-key scopes cannot be edited after creation.</li>
 <li><code>platform-links</code> ↔ <code>social-adapters</code> touch the same <code>social/</code> files — sequence, don't parallelize.</li>
-<li><code>import-unified</code> and the framing tail are unblocked and parallel-safe with everything.</li>
+<li>The framing tail is unblocked and parallel-safe with everything.</li>
 </ul>
 
 <h2>Decisions needed — answer in any Claude session</h2>

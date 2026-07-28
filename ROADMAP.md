@@ -51,8 +51,8 @@ A thin-proxy MCP server (`editor/mcp_server.py`) lets Claude import footage, sea
 12. ~~Data hygiene: CORRECTION-notes out of descriptions; photos flagged as stills, not 0.3s "videos".~~ ✅ Done (`data-hygiene` spec; maintenance checks in `editor/scripts_hygiene.py`).
     - ~~Also from `editor-ux-papercuts`: program idle poster, Cuts newest-first + aspect badge, non-local tooltip copy.~~ ✅ Done — spec **shipped and deleted 2026-07-26**. Its one deferred item (Cuts export-status + "Open folder") was absorbed by `specs/platform-links.html`, which owns the backend export record (`edit_exports`).
 13. Bitrate/length presets per destination (Reels vs Stories vs feed).
-14. Unified import box (spec: `specs/import-unified.html`) — merge the three import surfaces (drop zone / add-from-disk / links textarea) into one paste-drop-browse well with a queued-items list; fix "Things to look for" comma-splitting turning asides into bogus watchlist things (chip input).
-15. Import error UX (from the 2026-07-22 Photos-import failure) — folded into `specs/import-unified.html` (network pre-flight, collapsed error summaries, partial-failure counts). The CLAUDE.md rule about session-launched servers is already added.
+14. ~~Unified import box — merge the three import surfaces into one paste-drop-browse well with a queued-items list; fix "Things to look for" comma-splitting (chip input).~~ ✅ Done (`import-unified` spec).
+15. ~~Import error UX (from the 2026-07-22 Photos-import failure) — network pre-flight, collapsed error summaries, partial-failure counts.~~ ✅ Done (folded into `import-unified`).
 16. Platform status icons + open-on-platform links (spec: `specs/platform-links.html`) — per-cut platform icon row (grayed = not posted → composer; clock = scheduled; colored = published → opens the live post via stored permalink; red = failed). Stores `posts.permalink` at publish time; absorbs the deferred per-cut export-status papercut.
 
 ## Priority 4.5 — Efficiency & DRY pass ✅ Shipped 2026-07-16

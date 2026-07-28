@@ -752,7 +752,19 @@ function summarize(results) {
   if (moved) parts.push(`${moved} original${moved === 1 ? "" : "s"} deleted`);
   let msg = parts.join(", ") || "nothing imported";
   if (errors.length) {
-    msg += " — " + errors.map((e) => `${e.filename || e.url}: ${e.error}`).join("; ");
+    // Collapse repeated failures that share a root cause into one counted line, so a
+    // whole-batch failure reads "147 items failed: <reason>" instead of 147 near-
+    // identical lines. A lone failure still names its item for context.
+    const byReason = new Map();
+    for (const e of errors) {
+      const reason = e.error || "unknown error";
+      if (!byReason.has(reason)) byReason.set(reason, []);
+      byReason.get(reason).push(e.filename || e.url || "item");
+    }
+    const lines = [...byReason.entries()].map(([reason, items]) =>
+      items.length === 1 ? `${items[0]}: ${reason}` : `${items.length} items failed: ${reason}`
+    );
+    msg += " — " + lines.join("; ");
   }
   return msg;
 }
