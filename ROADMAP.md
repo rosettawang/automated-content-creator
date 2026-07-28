@@ -19,25 +19,27 @@ The project can no longer verify itself by hand; every refactor bets days of wor
 The blueprint split fixed `app.py`; don't let its problem respawn elsewhere.
 
 4. ~~**Split `core.py`**~~ ✅ Shipped. Decomposed along its section seams into `settings.py`, `export.py`, `indexing.py`, `catalog.py`, `ingest.py` (plus the earlier `config.py`/`jobs_runtime.py`/`media_files.py`); `core.py` is now a ~205-line re-export facade so blueprints' `from core import *` is unchanged. Redundant import-time schema shims removed (migrations own the baseline). `indexing.py` is ~1k lines (the one cohesive pipeline the spec kept whole); everything else is under ~800.
-5. ~~**Schema migrations.**~~ ✅ Shipped. `editor/migrations/NNN_*.sql` + a `schema_migrations` table; `db.py`'s `init_db()` applies pending migrations (baseline = `001`, adopts existing DBs cleanly, refuses a future-version DB). Round-trip test in `tests/test_migrations.py`. Remaining `core.py` `_ensure_*` cleanup carried into `specs/core-split.md`.
+5. ~~**Schema migrations.**~~ ✅ Shipped. `editor/migrations/NNN_*.sql` + a `schema_migrations` table; `db.py`'s `init_db()` applies pending migrations (baseline = `001`, adopts existing DBs cleanly, refuses a future-version DB). Round-trip test in `tests/test_migrations.py`. Remaining `core.py` `_ensure_*` cleanup carried into the core-split spec (shipped; see git history).
 6. **Docs follow code in the same commit.** README still describes the pre-refactor world in places (run instructions, window layout). Make "update README/CLAUDE.md" part of any commit that changes how the app is run or navigated. A short `CLAUDE.md` at repo root telling agent sessions the conventions (run tests, thin routes, migrations, commit style) pays for itself immediately given how much of this codebase is agent-written.
 
-## Priority 3 — The two designed features (spec: `specs/framing-and-provenance.md`)
+## Priority 3 — The two designed features (spec: `specs/framing-and-provenance.html`)
 
 7. ~~**Provenance + re-download**~~ ✅ Shipped. `source_kind`/`source_url` on clips, written at import + backfilled to 'photos' at startup; `POST /api/clips/<id>/pull` re-downloads from the recorded source; "⚠ not local" is a Re-download action.
-8. **Framing v2** — core shipped, tail remains. ✅ Time-aware regions (`clip_regions.t_frame`/`is_primary`, migration `002`; deep-index emits per-segment boxes) + assemble-time subject-tracking reframe (`_apply_auto_framing` fills `crop_*`/`kb_*` per item from boxes in its own in/out range; primary-region centering). ✅ Stage 4 complete: crop overlay on by default, **durable human overrides** (`crop_source`, migration `003` — manual crops survive an aspect change), and **edit-chat framing context** ("keep the bowl centered" → sticky crop). ⏳ Remaining in `specs/framing-and-provenance.md`: only the export frame-check (Stage 5, recurring API cost — gated behind a setting/on-device).
+8. **Framing v2** — core shipped, tail remains. ✅ Time-aware regions (`clip_regions.t_frame`/`is_primary`, migration `002`; deep-index emits per-segment boxes) + assemble-time subject-tracking reframe (`_apply_auto_framing` fills `crop_*`/`kb_*` per item from boxes in its own in/out range; primary-region centering). ✅ Stage 4 complete: crop overlay on by default, **durable human overrides** (`crop_source`, migration `003` — manual crops survive an aspect change), and **edit-chat framing context** ("keep the bowl centered" → sticky crop). ⏳ Remaining in `specs/framing-and-provenance.html`: only the export frame-check (Stage 5, recurring API cost — gated behind a setting/on-device).
 
-## Priority 3.5 — Social publishing (spec: `specs/social-publishing.md`)
+## Priority 3.5 — Social publishing (spec: `specs/social-publishing.html`)
 
 Scheduled posts, analytics, and recommendations under Campaigns, via Composio. Explicitly designed as its own bounded domain (`blueprints/publishing.py` + `social/` adapters + `posts`/`post_metrics` tables) so it can't become the next monolith. Note the dependency: **the Priority 1 test suite gates real posting** — publishing failures are public and irreversible, so the spec keeps everything in dry-run mode until the safety net exists. Build phases A–E in the spec; ship each before starting the next.
 
 **Status (2026-07-17):** ~~social-core (A–B)~~ and ~~social-analytics (D–E)~~ **shipped** — DB-driven scheduler, dry-run harness, campaign hub (KPIs, calendar/list, post-detail, Learn card), metrics ingestion + recommendations. Remaining: **social-adapters (C)** — Instagram adapter is built and dry-run gated but **not yet live-verified** on a real account; that verification (and turning `SOCIAL_DRY_RUN` off per campaign) is the only step left before real posting.
 
+**Go-live runbook: `specs/instagram-go-live.html`** (2026-07-24). @whrfund is connected in Composio (Active, user `rosettawang`, ref `ca_xGBSFmzcbfyu`); the adapter now has verified two-step slugs, local-file upload, a real connection check, and auto-resolves `ig_user_id`. Execute the runbook in **Claude Code** (terminal: resolver check → tests → dry-run inspect → arm → publish; the public post is a human confirm). Delete the spec and strike Phase C once one real post lands.
+
 ## ~~Priority 3.6 — Audio design for generated edits~~ ✅ SHIPPED
 
 ~~Generation currently decides what you see, not what you hear.~~ Shipped all four phases: per-edit `audio_plan` (ambient / speech-led / music / voiceover / clean), user-overridable and chat-changeable. Ambient treatment + beat-/sentence-snapped cuts; local `music/` library with mood match + faded/looped export bed; OpenAI TTS voiceover with an editable script; trending-audio compose (local reference track → beat detection → beat-timed cuts + synced preview, never exported, clean handoff). Deferred polish (git history has the spec): inter-clip audio crossfades, a `-20dB duck original under music` option, and live A/V preview-sync verification.
 
-## Priority 3.7 — MCP server: Claude drives the app (spec: `specs/mcp-server.md`)
+## Priority 3.7 — MCP server: Claude drives the app (spec: `specs/mcp-server.html`)
 
 A thin-proxy MCP server (`editor/mcp_server.py`) lets Claude import footage, search the library, and assemble edits over the same HTTP endpoints the UI uses — one source of truth, and writes propagate to the editor via its live-refresh poll. **Core shipped 2026-07-17:** stdio + `content-creator-mcp` entry point, auto-start, `import_media`/`search_clips`/`assemble_cut`, portable `.mcp.json`, README install flow. Remaining in the spec: (A) multi-account posting — one Instagram account per campaign (gated on social-adapters C, real posting irreversible); (B) more thin-proxy tools on demand; (C) PyPI packaging for `uvx` clone-free install; (D) remote/hosted MCP — only if a shared multi-user library is ever wanted.
 
@@ -47,8 +49,11 @@ A thin-proxy MCP server (`editor/mcp_server.py`) lets Claude import footage, sea
 10. ~~Auto-suggest campaign assignment for generated cuts.~~ ✅ Done (dismissible banner, `editor-ux-papercuts`).
 11. ~~Settings popover clips off the left window edge.~~ ✅ Done (flip/clamp on open).
 12. ~~Data hygiene: CORRECTION-notes out of descriptions; photos flagged as stills, not 0.3s "videos".~~ ✅ Done (`data-hygiene` spec; maintenance checks in `editor/scripts_hygiene.py`).
-    - Also from `editor-ux-papercuts`: ✅ program idle poster, Cuts newest-first + aspect badge, non-local tooltip copy. ⏳ still open: Cuts export-status + "Open folder" (needs a backend export record; desktop-only for folder open).
+    - ~~Also from `editor-ux-papercuts`: program idle poster, Cuts newest-first + aspect badge, non-local tooltip copy.~~ ✅ Done — spec **shipped and deleted 2026-07-26**. Its one deferred item (Cuts export-status + "Open folder") was absorbed by `specs/platform-links.html`, which owns the backend export record (`edit_exports`).
 13. Bitrate/length presets per destination (Reels vs Stories vs feed).
+14. Unified import box (spec: `specs/import-unified.html`) — merge the three import surfaces (drop zone / add-from-disk / links textarea) into one paste-drop-browse well with a queued-items list; fix "Things to look for" comma-splitting turning asides into bogus watchlist things (chip input).
+15. Import error UX (from the 2026-07-22 Photos-import failure) — folded into `specs/import-unified.html` (network pre-flight, collapsed error summaries, partial-failure counts). The CLAUDE.md rule about session-launched servers is already added.
+16. Platform status icons + open-on-platform links (spec: `specs/platform-links.html`) — per-cut platform icon row (grayed = not posted → composer; clock = scheduled; colored = published → opens the live post via stored permalink; red = failed). Stores `posts.permalink` at publish time; absorbs the deferred per-cut export-status papercut.
 
 ## Priority 4.5 — Efficiency & DRY pass ✅ Shipped 2026-07-16
 
@@ -64,7 +69,7 @@ Every spec in `specs/` declares which files it owns; two sessions may run concur
 | ~~`schema-migrations`~~ (shipped) | — | — | — |
 | ~~`core-split`~~ (shipped) | — | — | — |
 | ~~`aspect-from-prompt`~~ (shipped) | frontend, tests, data-hygiene | — | — |
-| `editor-ux-papercuts` | all backend specs | — | — |
+| ~~`editor-ux-papercuts`~~ (shipped) | — | — | export-status item moved to `platform-links` |
 | `data-hygiene` | code specs (it edits data) | — | — |
 | `framing-and-provenance` | frontend, tests | its own other half | — (schema-migrations shipped) |
 | `social-publishing` | frontend, tests, data-hygiene | — | test-suite gates real posting |

@@ -19,7 +19,7 @@ strong{color:#fff}
 </head>
 <body>
 <h1>Specs index</h1>
-<p><em>Living dashboard (the fourth living doc, with README/ROADMAP/CLAUDE.md). Keep it true: when a spec ships, remove its row; <strong>when a spec run hits a step that needs the owner signed in to something, add it to the login-gated queue below</strong> instead of stalling. The owner clears that queue in batches via the Chrome extension — Claude drives each tab to the last safe step; the owner confirms with a click.</em></p>
+<p><em>Living dashboard (the fourth living doc, with README/ROADMAP/CLAUDE.md). Keep it true: when a spec ships, remove its row. <strong>Every spec run ends by recording its outcome here</strong> — one row per item, in whichever section fits: a login-gated step → the queue; a choice only the owner can make → Decisions needed; built behavior that deviates from the spec text → Reconciliations (and update the spec HTML in the same commit). A run that ends without recording is an unfinished run.</em></p>
 
 <h2>Open specs</h2>
 <table>
@@ -31,7 +31,6 @@ strong{color:#fff}
 <tr><td><a href="import-unified.html">import-unified</a></td><td>One paste/drop/browse import box + chip input + network pre-flight and readable errors</td><td><span class="tag wait">not started</span> — independent, frontend-heavy</td></tr>
 <tr><td><a href="framing-and-provenance.html">framing-and-provenance</a></td><td>Subject-tracking reframe + provenance/re-download</td><td>nearly done — only Stage 5 export frame-check (gated behind a setting)</td></tr>
 <tr><td><a href="mcp-server.html">mcp-server</a></td><td>Claude drives the app via MCP</td><td>core shipped; open: multi-account posting (gated on go-live), more tools, PyPI packaging, remote</td></tr>
-<tr><td><a href="editor-ux-papercuts.html">editor-ux-papercuts</a></td><td>Frontend papercuts</td><td>all items shipped or absorbed by platform-links — <strong>delete this spec on next commit</strong></td></tr>
 </table>
 
 <h2>Bottlenecks (what blocks what)</h2>
@@ -43,13 +42,29 @@ strong{color:#fff}
 <li><code>import-unified</code> and the framing tail are unblocked and parallel-safe with everything.</li>
 </ul>
 
+<h2>Decisions needed — answer in any Claude session</h2>
+<p><em>Choices only the owner can make. Sessions append a row instead of guessing (or silently picking a default and burying it in a commit). Answer in chat or edit the row; the session records the answer in the owning spec and strikes the row.</em></p>
+<table>
+<tr><th>#</th><th>Decision</th><th>From</th><th>Options (default first)</th><th>If unanswered</th></tr>
+<tr><td>D1</td><td>Enable the export frame-check (Stage 5)?</td><td>framing-and-provenance</td><td><strong>Keep off</strong> (framing v2 has been accurate) · enable per-export toggle (~1 vision call/segment) · wait for on-device check</td><td>Stays off; spec tail stays open</td></tr>
+<tr><td>D2</td><td>Rename <code>edits</code> → <code>cuts</code> end-to-end (DB/API/JS)?</td><td>proposed 2026-07-16, no spec yet</td><td><strong>Do it now</strong> (migrations + tests exist; gets pricier once <code>posts.edit_id</code> ships) · freeze boundary (UI says cut, code says edit, glossary in CLAUDE.md)</td><td>Boundary keeps drifting; each new feature bakes in the old name</td></tr>
+</table>
+
+<h2>Reconciliations — where built ≠ spec'd</h2>
+<p><em>When implementation deviates from a spec (better idea mid-build, API reality, scope cut), record the delta here AND update the owning spec's HTML in the same commit — the spec must read true afterward. Strike rows once the owner has seen them; the spec text is the permanent record.</em></p>
+<table>
+<tr><th>Date</th><th>Spec</th><th>What changed vs the spec text</th><th>Spec updated?</th></tr>
+<tr><td>2026-07-27</td><td>instagram-go-live</td><td>"One session + one click" was wrong: run surfaced 4 blockers (IG user id resolution, toolkit version pinning, auth model, key scopes). 3 fixed in code; scope-limited API key remains (queue #5). Dead end documented: don't chase the IG id via a Meta developer app</td><td>Yes — procedure + bottlenecks rewritten from the run</td></tr>
+<tr><td>2026-07-27</td><td>editor-ux-papercuts</td><td>Spec deleted. 4 of 5 items shipped; item 3's deferred half (Cuts export-status + "Open folder") was <em>not</em> built here — it's absorbed by <code>platform-links</code>, which owns the backend record (<code>edit_exports</code>, migration 007 — table exists but is not yet written/read). So the papercuts spec closes with zero open work of its own</td><td>N/A — spec deleted; ROADMAP struck, index row removed</td></tr>
+</table>
+
 <h2>Login-gated queue — batch these in Chrome</h2>
 <p><em>Rules of engagement: Claude (browser) navigates, fills non-credential fields, and stops at the decision point. The owner signs in themselves and clicks the final button. Claude never enters passwords or payment details and never clicks an irreversible "post/publish/authorize" — that click is the confirmation. Strike rows when done; sessions append new rows as specs surface them.</em></p>
 <table>
 <tr><th>#</th><th>Task</th><th>From</th><th>Where</th><th>Claude drives to…</th><th>Your click</th></tr>
-<tr><td>5</td><td><strong>Composio API key with <code>proxy_execute</code> + tool-execution scopes</strong> — the live blocker for go-live step 1</td><td>instagram-go-live</td><td><a href="https://dashboard.composio.dev">Composio → API Keys</a></td><td>Opens API Keys, fills the create-key form with the right scopes checked (Read All + Tool execution + Proxy execute), stops before Create — key scopes are immutable after creation, so a new key is required</td><td>Press <strong>Create</strong>, then paste the key into <code>editor/.env</code> yourself (Claude never handles the secret): <code>read -rs -p "key: " K &amp;&amp; sed -i '' "s|^COMPOSIO_API_KEY=.*|COMPOSIO_API_KEY=${K}|" .env &amp;&amp; unset K</code></td></tr>
+<tr><td>5</td><td><strong>Composio API key with <code>proxy_execute</code> + tool-execution scopes</strong> — the live blocker for go-live step 1. <em>🟢 STAGED 2026-07-26: tab open, form filled ("content-creator publish (tool+proxy exec)", Read All + Tools + Tool execution ✓ + Proxy execute ✓), waiting on Create.</em></td><td>instagram-go-live</td><td><a href="https://dashboard.composio.dev">Composio → API Keys</a></td><td>Opens API Keys, fills the create-key form with the right scopes checked (Read All + Tool execution + Proxy execute), stops before Create — key scopes are immutable after creation, so a new key is required</td><td>Press <strong>Create</strong>, then paste the key into <code>editor/.env</code> yourself (Claude never handles the secret): <code>read -rs -p "key: " K &amp;&amp; sed -i '' "s|^COMPOSIO_API_KEY=.*|COMPOSIO_API_KEY=${K}|" .env &amp;&amp; unset K</code></td></tr>
 <tr><td>1</td><td>Verify the first real Instagram post</td><td>instagram-go-live</td><td>instagram.com (your account)</td><td>Claude Code runs go-live steps 1–5 (resolver, tests, dry-run payload inspection) and reports the exact payload. It does <strong>not</strong> arm the campaign, set <code>SOCIAL_DRY_RUN=0</code>, or trigger the publish</td><td>Arm + publish (the irreversible step), then eyeball the live post</td></tr>
-<tr><td>2</td><td>Re-auth the Composio ↔ Instagram connection when it expires</td><td>social-adapters</td><td>Composio OAuth redirect (app → connect)</td><td>Opens the connect flow from the campaign hub, lands on the OAuth consent page</td><td>Sign in + approve consent</td></tr>
+<tr><td>2</td><td>Re-auth the Composio ↔ Instagram connection when it expires. <em>✓ Checked 2026-07-26: connection ACTIVE (toolkit lists 20 actions) — nothing to do until it expires.</em></td><td>social-adapters</td><td>Composio OAuth redirect (app → connect)</td><td>Opens the connect flow from the campaign hub, lands on the OAuth consent page</td><td>Sign in + approve consent</td></tr>
 <tr><td>3</td><td>Private Google Drive / Photos imports (links not shared "anyone with link")</td><td>import-unified</td><td>drive.google.com / photos.google.com</td><td>Opens the link, detects the auth wall, reports which items need it</td><td>Sign in to Google; re-run the import</td></tr>
 <tr><td>4</td><td>Instagram business-account permissions check (content-publishing API scope)</td><td>instagram-go-live (if publish returns a permissions error)</td><td>Meta Business Suite</td><td>Navigates to the app permissions page for the connected account</td><td>Toggle/approve the scope</td></tr>
 </table>
