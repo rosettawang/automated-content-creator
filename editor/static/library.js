@@ -697,6 +697,28 @@ includePhotosBox.addEventListener("change", () => {
   applyFilter();
 });
 
+// ---- normalize all videos (settings > maintenance) ----
+// Proxies already build on import and lazily on first view; this is just a
+// catch-up pass for clips that predate that, so it's a quiet settings action.
+const normalizeBtn = document.getElementById("normalize-all-btn");
+const normalizeStatus = document.getElementById("normalize-status");
+normalizeBtn.addEventListener("click", async () => {
+  normalizeBtn.disabled = true;
+  normalizeStatus.textContent = "Checking…";
+  try {
+    const res = await fetch("/api/normalize-all", { method: "POST" });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    normalizeStatus.textContent = body.queued
+      ? `Converting ${body.queued} video${body.queued === 1 ? "" : "s"} in the background — you can keep working.`
+      : "All videos are already web-ready.";
+  } catch (err) {
+    normalizeStatus.textContent = `Error: ${err.message}`;
+  } finally {
+    normalizeBtn.disabled = false;
+  }
+});
+
 // ---- view-settings popup (gear) ----
 const settingsOverlay = document.getElementById("settings-overlay");
 document.getElementById("lib-settings-btn").addEventListener("click", () => {

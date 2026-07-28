@@ -51,6 +51,17 @@
           <option value="quality_asc">Quality ↑ (worst first)</option>
         </select>
       </label>
+
+      <!-- Maintenance: normally unnecessary (proxies build on import and on first
+           view). This just pre-builds them for clips imported before that existed. -->
+      <div class="setting-section">
+        <button id="normalize-all-btn">Normalize all videos</button>
+        <div class="setting-hint">
+          Pre-builds web-playable copies so every clip previews smoothly.
+          Happens automatically for new imports — this catches up older ones.
+        </div>
+        <div id="normalize-status" class="setting-hint"></div>
+      </div>
     </div>
   </div>
 

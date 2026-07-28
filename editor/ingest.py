@@ -16,7 +16,9 @@ from pathlib import Path
 
 from db import get_conn
 from config import MEDIA_DIR, MEDIA_EXTS, VIDEO_EXTS, classify_kind
-from media_files import find_media_file, _hash_file, _generate_proxy
+from media_files import (
+    find_media_file, _hash_file, _generate_proxy, _proxy_jobs, _proxy_lock,
+)
 from jobs_runtime import _update_job
 from settings import _photos_albums, _remember_photos_albums, _read_album_urls_from_xlsx
 from indexing import _index_clip_background
@@ -237,10 +239,23 @@ def extract_media_from_zip(zip_path: Path, dest_dir: Path) -> tuple[list[Path], 
 
 def _backfill_proxies(stems: list[str]) -> None:
     """Generate proxies for a list of clip stems one at a time (serial, so we don't
-    fan out many heavy transcodes at once). Runs in a daemon thread."""
+    fan out many heavy transcodes at once). Runs in a daemon thread.
+
+    Claims each stem in the same _proxy_jobs set _ensure_proxy_async uses, so a
+    second backfill (e.g. the user clicking "Normalize all videos" twice) or a
+    concurrent lazy build can't run two ffmpegs writing the same .partial.mp4."""
     for stem in stems:
         p = find_media_file(stem)
-        if p and p.suffix.lower() in VIDEO_EXTS:
+        if not p or p.suffix.lower() not in VIDEO_EXTS:
+            continue
+        with _proxy_lock:
+            if stem in _proxy_jobs:
+                continue  # already being built elsewhere
+            _proxy_jobs.add(stem)
+        try:
             _generate_proxy(p)
+        finally:
+            with _proxy_lock:
+                _proxy_jobs.discard(stem)
 
 __all__ = [n for n in dir() if not n.startswith("__")]

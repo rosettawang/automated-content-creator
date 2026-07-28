@@ -244,6 +244,30 @@ body {
 .setting-row input[type="checkbox"] { cursor: pointer; }
 .setting-hint { color: #888; font-size: 0.8rem; }
 
+/* Maintenance actions, separated from the view toggles above. */
+.setting-section {
+  border-top: 1px solid #383838;
+  margin-top: 0.6rem;
+  padding-top: 0.9rem;
+}
+
+#normalize-all-btn {
+  font-size: 0.85rem;
+  padding: 0.45rem 0.8rem;
+  border-radius: 6px;
+  border: 1px solid #444;
+  background: #2c2c2c;
+  color: #eee;
+  cursor: pointer;
+}
+
+#normalize-all-btn:hover { background: #383838; }
+#normalize-all-btn:disabled { opacity: 0.5; cursor: default; }
+
+.setting-section .setting-hint { margin-top: 0.45rem; line-height: 1.4; }
+#normalize-status:empty { display: none; }
+#normalize-status { color: #9fbf9f; }
+
 .setting-row-select { justify-content: space-between; cursor: default; }
 .setting-row-select select {
   font-size: 0.85rem;
