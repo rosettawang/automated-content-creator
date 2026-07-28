@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Specs index — status, bottlenecks, login-gated queue</title>
+<style>
+body{font-family:-apple-system,Segoe UI,sans-serif;max-width:900px;margin:2rem auto;padding:0 1.2rem;background:#1c1c1e;color:#e8e8ea;line-height:1.55}
+h1{font-size:1.5rem;border-bottom:1px solid #3a3a3c;padding-bottom:.4rem}
+h2{font-size:1.15rem;margin-top:1.8rem;color:#9fd0a8}
+code{background:#2c2c2e;padding:.1em .35em;border-radius:4px;font-size:.9em}
+table{border-collapse:collapse;margin:1rem 0;width:100%}th,td{border:1px solid #3a3a3c;padding:.4rem .6rem;text-align:left;vertical-align:top;font-size:.92em}
+th{background:#252527}
+a{color:#8ab4f8}
+del{color:#7a7a7e}
+strong{color:#fff}
+.tag{padding:.05em .5em;border-radius:9px;font-size:.8em;white-space:nowrap}
+.ok{background:#123524;color:#9fd0a8}.wait{background:#3a2c14;color:#e8c07a}.block{background:#3a1a1a;color:#e8a0a0}
+</style>
+</head>
+<body>
+<h1>Specs index</h1>
+<p><em>Living dashboard (the fourth living doc, with README/ROADMAP/CLAUDE.md). Keep it true: when a spec ships, remove its row; <strong>when a spec run hits a step that needs the owner signed in to something, add it to the login-gated queue below</strong> instead of stalling. The owner clears that queue in batches via the Chrome extension — Claude drives each tab to the last safe step; the owner confirms with a click.</em></p>
+
+<h2>Open specs</h2>
+<table>
+<tr><th>Spec</th><th>What it is</th><th>Status / remaining</th></tr>
+<tr><td><a href="instagram-go-live.html">instagram-go-live</a></td><td>Procedure: first verified real Instagram post (Claude Code terminal run)</td><td><span class="tag block">blocked at step 1</span> — needs a Composio key with <code>proxy_execute</code> + tool-execution (queue #5). Three code blockers already fixed: <code>IG_USER_ID</code> override, toolkit-version pin, auth-model diagnosis</td></tr>
+<tr><td><a href="social-adapters.html">social-adapters</a></td><td>Per-platform adapters behind one interface</td><td><span class="tag block">blocked</span> — Instagram built + dry-run gated; Phase C acceptance = go-live verification</td></tr>
+<tr><td><a href="social-publishing.html">social-publishing</a></td><td>Umbrella: scheduling, analytics, recommendations under Campaigns</td><td>core + analytics shipped; only adapters Phase C open</td></tr>
+<tr><td><a href="platform-links.html">platform-links</a></td><td>Per-cut platform icon row (gray = not posted, colored = opens live post) + permalink storage + export record</td><td><span class="tag wait">not started</span> — coordinate with social/ files</td></tr>
+<tr><td><a href="import-unified.html">import-unified</a></td><td>One paste/drop/browse import box + chip input + network pre-flight and readable errors</td><td><span class="tag wait">not started</span> — independent, frontend-heavy</td></tr>
+<tr><td><a href="framing-and-provenance.html">framing-and-provenance</a></td><td>Subject-tracking reframe + provenance/re-download</td><td>nearly done — only Stage 5 export frame-check (gated behind a setting)</td></tr>
+<tr><td><a href="mcp-server.html">mcp-server</a></td><td>Claude drives the app via MCP</td><td>core shipped; open: multi-account posting (gated on go-live), more tools, PyPI packaging, remote</td></tr>
+<tr><td><a href="editor-ux-papercuts.html">editor-ux-papercuts</a></td><td>Frontend papercuts</td><td>all items shipped or absorbed by platform-links — <strong>delete this spec on next commit</strong></td></tr>
+</table>
+
+<h2>Bottlenecks (what blocks what)</h2>
+<ul>
+<li><strong>instagram-go-live is the single biggest bottleneck:</strong> real posting, platform-links' published state, mcp-server's posting tools, and analytics on real data all sit behind it. <em>Revised 2026-07-27:</em> it is <strong>not</strong> "one session + one click" — a run surfaced four blockers, three now fixed in code. What remains is queue&nbsp;#5 (the API key) then the owner's publish.</li>
+<li><strong>Do not chase the IG user id through a Meta developer app</strong> — that detour was tried and is a dead end. Composio's Instagram toolkit authenticates via <em>Instagram Login</em> (<code>base_url: graph.instagram.com</code>, current-user endpoint <code>/me?fields=id,username</code>), <em>not</em> Facebook Login, so a Facebook Page token is the wrong key; Meta also refuses to add Instagram use cases to a Facebook-Login app. The id is also absent from the connection metadata (<code>extra_data</code> is empty) and the stored token is Composio-proxied, so direct Graph calls fail "Cannot parse access token". Correct routes: the Composio <code>tools.proxy</code> call (needs queue&nbsp;#5), or paste the number into <code>IG_USER_ID</code> in <code>editor/.env</code>.</li>
+<li><strong>Composio gotchas that will bite any adapter:</strong> toolkit versions must be pinned as a bare datestamp (<code>20260721_00</code>) — <code>latest</code> raises <code>ToolVersionRequiredError</code> and a <code>v</code> prefix makes every slug 404 as "Tool not found". API-key scopes cannot be edited after creation.</li>
+<li><code>platform-links</code> ↔ <code>social-adapters</code> touch the same <code>social/</code> files — sequence, don't parallelize.</li>
+<li><code>import-unified</code> and the framing tail are unblocked and parallel-safe with everything.</li>
+</ul>
+
+<h2>Login-gated queue — batch these in Chrome</h2>
+<p><em>Rules of engagement: Claude (browser) navigates, fills non-credential fields, and stops at the decision point. The owner signs in themselves and clicks the final button. Claude never enters passwords or payment details and never clicks an irreversible "post/publish/authorize" — that click is the confirmation. Strike rows when done; sessions append new rows as specs surface them.</em></p>
+<table>
+<tr><th>#</th><th>Task</th><th>From</th><th>Where</th><th>Claude drives to…</th><th>Your click</th></tr>
+<tr><td>5</td><td><strong>Composio API key with <code>proxy_execute</code> + tool-execution scopes</strong> — the live blocker for go-live step 1</td><td>instagram-go-live</td><td><a href="https://dashboard.composio.dev">Composio → API Keys</a></td><td>Opens API Keys, fills the create-key form with the right scopes checked (Read All + Tool execution + Proxy execute), stops before Create — key scopes are immutable after creation, so a new key is required</td><td>Press <strong>Create</strong>, then paste the key into <code>editor/.env</code> yourself (Claude never handles the secret): <code>read -rs -p "key: " K &amp;&amp; sed -i '' "s|^COMPOSIO_API_KEY=.*|COMPOSIO_API_KEY=${K}|" .env &amp;&amp; unset K</code></td></tr>
+<tr><td>1</td><td>Verify the first real Instagram post</td><td>instagram-go-live</td><td>instagram.com (your account)</td><td>Claude Code runs go-live steps 1–5 (resolver, tests, dry-run payload inspection) and reports the exact payload. It does <strong>not</strong> arm the campaign, set <code>SOCIAL_DRY_RUN=0</code>, or trigger the publish</td><td>Arm + publish (the irreversible step), then eyeball the live post</td></tr>
+<tr><td>2</td><td>Re-auth the Composio ↔ Instagram connection when it expires</td><td>social-adapters</td><td>Composio OAuth redirect (app → connect)</td><td>Opens the connect flow from the campaign hub, lands on the OAuth consent page</td><td>Sign in + approve consent</td></tr>
+<tr><td>3</td><td>Private Google Drive / Photos imports (links not shared "anyone with link")</td><td>import-unified</td><td>drive.google.com / photos.google.com</td><td>Opens the link, detects the auth wall, reports which items need it</td><td>Sign in to Google; re-run the import</td></tr>
+<tr><td>4</td><td>Instagram business-account permissions check (content-publishing API scope)</td><td>instagram-go-live (if publish returns a permissions error)</td><td>Meta Business Suite</td><td>Navigates to the app permissions page for the connected account</td><td>Toggle/approve the scope</td></tr>
+</table>
+
+<h2>How to run a batch</h2>
+<ol>
+<li>Tell Claude "work the login queue" — it opens one tab per row via the Chrome extension and drives each to the state in "Claude drives to…".</li>
+<li>You go tab to tab: sign in where needed, click the confirming button.</li>
+<li>Claude verifies the result (post visible, connection ACTIVE, import completed), strikes the row here, and updates the owning spec/ROADMAP.</li>
+</ol>
+</body>
+</html>
