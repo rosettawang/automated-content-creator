@@ -79,14 +79,9 @@ AUDIO_MODES = ("ambient", "speech-led", "music", "voiceover", "clean")
 def _voiceover_mix_filter(duck: float = 0.18) -> str:
     """filter_complex to lay a voiceover over ducked ambient: ambient dropped to ~duck
     (0.18 ≈ -15dB), VO at full, mixed to the VIDEO's length so a too-long VO is cut
-    (we warn) rather than stretching the picture.
-
-    normalize=0 is load-bearing: amix divides every input by the input count by default,
-    which halves the VO (-6dB) and ducks ambient to 0.09 rather than 0.18 — narration
-    came out quieter than the plain ambient render."""
+    (we warn) rather than stretching the picture."""
     return (f"[0:a]volume={duck}[amb];"
-            f"[amb][1:a]amix=inputs=2:duration=first:dropout_transition=200:"
-            f"normalize=0[a]")
+            f"[amb][1:a]amix=inputs=2:duration=first:dropout_transition=200[a]")
 
 
 def _music_bed_filter(total: float, gain: float = 0.9) -> str:
@@ -454,7 +449,7 @@ def _prune_segment_cache(keep: int = _SEGMENT_CACHE_MAX) -> None:
 
 
 def _run_export_job(job_id, name, explicit_aspect, dims, plan, audio_mode="ambient",
-                    vo_script=None, vo_voice=None, music_path=None, edit_id=None):
+                    vo_script=None, vo_voice=None, music_path=None):
     """Render the timeline to a social-normalized MP4 with live progress. `plan` is a
     list of self-contained item dicts (source path + in/out + crop/kb) so it needs no
     request context. Mirrors the import-job pattern: total = segments + 1 concat step.
@@ -621,19 +616,6 @@ def _run_export_job(job_id, name, explicit_aspect, dims, plan, audio_mode="ambie
                 result["warning"] = vo_warning
             if music_warning:
                 result["warning"] = music_warning
-            # Record the render so a cut card can show an "exported" badge and the
-            # desktop shell can offer "Open folder" (spec: platform-links).
-            if edit_id is not None:
-                erec = get_conn()
-                try:
-                    erec.execute(
-                        "INSERT INTO edit_exports (edit_id, path, width, height, fps) "
-                        "VALUES (?, ?, ?, ?, ?)",
-                        (edit_id, str(output_path), dims[0], dims[1], EXPORT_FPS),
-                    )
-                    erec.commit()
-                finally:
-                    erec.close()
             _update_job(job_id, done=len(plan) + 1, finished=True, current=None, phase="done",
                         results=[result])
     except JobCancelled:

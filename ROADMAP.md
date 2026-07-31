@@ -41,7 +41,7 @@ Scheduled posts, analytics, and recommendations under Campaigns, via Composio. E
 
 ## Priority 3.7 — MCP server: Claude drives the app (spec: `specs/mcp-server.html`)
 
-A thin-proxy MCP server (`editor/mcp_server.py`) lets Claude import footage, search the library, and assemble edits over the same HTTP endpoints the UI uses — one source of truth, and writes propagate to the editor via its live-refresh poll. **Core shipped 2026-07-17:** stdio + `content-creator-mcp` entry point, auto-start, `import_media`/`search_clips`/`redownload_clip`/`assemble_cut`, portable `.mcp.json`, README install flow. **(B) shipped 2026-07-28:** added `list_campaigns`/`create_campaign`/`list_edits`/`get_edit`/`revise_edit`/`export_edit`/`suggest_content` — 11 tools total; all thin proxies, verified live. Remaining in the spec: (A) multi-account posting — one Instagram account per campaign (gated on social-adapters C, real posting irreversible); (C) PyPI packaging for `uvx` clone-free install; (D) remote/hosted MCP — only if a shared multi-user library is ever wanted.
+A thin-proxy MCP server (`editor/mcp_server.py`) lets Claude import footage, search the library, and assemble edits over the same HTTP endpoints the UI uses — one source of truth, and writes propagate to the editor via its live-refresh poll. **Core shipped 2026-07-17:** stdio + `content-creator-mcp` entry point, auto-start, `import_media`/`search_clips`/`assemble_cut`, portable `.mcp.json`, README install flow. Remaining in the spec: (A) multi-account posting — one Instagram account per campaign (gated on social-adapters C, real posting irreversible); (B) more thin-proxy tools on demand; (C) PyPI packaging for `uvx` clone-free install; (D) remote/hosted MCP — only if a shared multi-user library is ever wanted.
 
 ## Priority 4 — Papercuts (opportunistic, none blocking)
 
@@ -53,7 +53,7 @@ A thin-proxy MCP server (`editor/mcp_server.py`) lets Claude import footage, sea
 13. Bitrate/length presets per destination (Reels vs Stories vs feed).
 14. ~~Unified import box — merge the three import surfaces into one paste-drop-browse well with a queued-items list; fix "Things to look for" comma-splitting (chip input).~~ ✅ Done (`import-unified` spec).
 15. ~~Import error UX (from the 2026-07-22 Photos-import failure) — network pre-flight, collapsed error summaries, partial-failure counts.~~ ✅ Done (folded into `import-unified`).
-16. ~~Platform status icons + open-on-platform links (spec: `specs/platform-links.html`) — per-cut platform icon row (grayed = not posted → composer; clock = scheduled; colored = published → opens the live post via stored permalink; red = failed). Stores `posts.permalink` at publish time; absorbs the deferred per-cut export-status papercut.~~ ✅ **Shipped and deleted 2026-07-28** (migration 007: `posts.permalink` + `edit_exports`; `PublishResult` carries the permalink; cuts API `posts`/`last_export` summary; icon row in `cuts.js`). Real published-state permalinks depend on go-live (dry-run stores none).
+16. Platform status icons + open-on-platform links (spec: `specs/platform-links.html`) — per-cut platform icon row (grayed = not posted → composer; clock = scheduled; colored = published → opens the live post via stored permalink; red = failed). Stores `posts.permalink` at publish time; absorbs the deferred per-cut export-status papercut.
 
 ## Priority 4.5 — Efficiency & DRY pass ✅ Shipped 2026-07-16
 

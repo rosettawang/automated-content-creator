@@ -5,14 +5,11 @@ A lightweight pipeline that turns a raw media library into short-form social cli
 **Example dataset:** pipevine / pipevine-swallowtail footage for [@whrfund](https://www.instagram.com/whrfund) (Wild Harvest & Restoration Fund), used here to demonstrate the pipeline end to end.
 
 ## How it works
-The whole loop now lives in the editor app (below); the metadata-as-index idea is unchanged, but the workflow is app-driven rather than spreadsheet-driven.
-
-1. **Ingest** — import local files, a `.zip`, Google Drive links, or a Google Photos album; each is auto-indexed on the way in (vision description, category, transcript, GPS, technical quality).
-2. **Index** — a quick pass (keyframe + one-line description, category, duration) plus a deep pass (ffmpeg frame sampling → per-scene "moments" with timestamps and subject regions used later for cutting and reframing).
-3. **Store** — everything lives in `editor/data/editor.db` (the source of truth), optionally embedded back into each file's XMP/EXIF so metadata travels with the media. `content_intake_log.xlsx` is now an *export* of the DB, not the master.
-4. **Assemble** — describe the video you want; Claude picks and orders clips with in/out points chosen from indexed moments, and infers the aspect (e.g. "vertical" → 9:16). Revise conversationally in the edit chat.
-5. **Export** — a background job trims, subject-tracking-reframes to the target aspect, normalizes fps, and writes an `+faststart` mp4 to `clips_out/`.
-6. **Publish** *(new)* — group cuts into **campaigns**, schedule posts, and publish/measure via Composio. Real posting is gated behind a dry-run default + per-campaign arm switch (see Campaigns below).
+1. **Ingest** — open a shared Google Photos album in the browser; use "Download all" for the complete, deterministic set.
+2. **Index (two-tier)** — quick-index every clip (keyframe + one-line description, category, duration), then deep-dive a flagged subset with ffmpeg frame extraction → quality notes + best-moment cut timestamps.
+3. **Store** — metadata in `content_intake_log.xlsx`; ideas in markdown; hero stills in `reference_frames/`; raw video stays temporary.
+4. **Ideate** — `reel_ideas_*.md` proposes 5–10s vertical concepts, each referencing a clip by filename + timestamp.
+5. **Cut** — pull the needed clip, cut with ffmpeg (or Descript), export vertical to `clips_out/`.
 
 ## Repo contents
 - `content_intake_log.xlsx` — the footage index (Intake Log + Video Index tabs)
@@ -27,9 +24,9 @@ The whole loop now lives in the editor app (below); the metadata-as-index idea i
 - `ads/` — Meta ads launch plan
 
 ## Editor app
-A desktop app that browses indexed clips, understands them (vision + transcript + motion/region indexing), assembles AI rough cuts, lets you revise them conversationally, exports reframed vertical video, and schedules/publishes the results to social platforms under Campaigns.
+A rudimentary desktop video editor: browse indexed clips, transcribe/analyze them, build a timeline, export a cut.
 
-**Requires Python 3.11+** (`editor/pyproject.toml` pins `requires-python = ">=3.11"`; plain
+**Requires Python 3.10+** (the Composio dependency needs `typing.TypeAlias`, added in 3.10 — plain
 `python3` may resolve to something older; on macOS `brew install python@3.11` and use that
 interpreter explicitly if so).
 
@@ -66,8 +63,7 @@ query strings (`/?edit=<id>`, `/?campaign=<id>`).
 `MEDIA_DIR` should point at wherever you've temporarily pulled the actual clips (see "Storage
 during editing" in `docs/archive/video-editor-plan.md`) — clips without a matching local file still show up
 in the library (marked "not local") but can't be previewed, transcribed, or exported until
-they're pulled down. Because each clip records where it came from (`source_kind`/`source_url`),
-a "not local" clip offers a **Re-download** action that re-fetches it from its original source.
+they're pulled down.
 
 **Transcription** — select a clip in the editor's source panel and hit "Transcribe" to run
 Whisper (`base` model, local, no internet needed) over its audio; the result is saved to the
@@ -86,18 +82,9 @@ video you want" box in the editor toolbar (hit "Generate" to add clips onto the 
 project's timeline), or the same box in the **Clip Library** (hit "Assemble in editor →" to spin
 up a *new* project and land in the editor — see the Clip Library window notes above, including
 selecting specific clips to narrow the pool). Either way Claude reads the clip catalog
-(descriptions, categories, transcripts, context, and indexed *moments* with timestamps) and
-picks/orders clips with in/out points, which you can then hand-adjust as usual. It also infers
-the output aspect from the prompt ("a vertical reel" → 9:16); change it anytime in the settings
-gear or by asking in chat ("make it square"). "Suggest content ideas" (under Tools in the source
-panel) asks Claude what's missing from the existing footage and worth filming next, based on the
-same catalog plus how past posts performed.
-
-**Framing (vertical reframe)** — when the output aspect differs from the source, export reframes
-each clip to keep the subject in shot rather than center-cropping blindly: indexed subject
-regions drive a per-clip crop (and a gentle pan when the subject moves across the shot). The crop
-overlay shows on the program monitor when aspect ≠ source; drag it to override, and your manual
-crop sticks even if you change the aspect later.
+(descriptions, categories, transcripts, context) and picks/orders clips with in/out points, which
+you can then hand-adjust as usual. "Suggest content ideas" (under Tools in the source panel) asks
+Claude what's missing from the existing footage and worth filming next, based on the same catalog.
 
 **Describe & tag (metadata is the index)** — select a clip and use the **Describe this clip**
 panel in the source monitor to write your own `description`, `category`, `tags`, and a freeform
@@ -125,21 +112,6 @@ won't touch existing projects/timelines/transcripts. By default it imports only 
 media file exists locally, so a stale spreadsheet can't resurrect clips that were pruned from
 the DB; pass `--include-missing` to import every row. `editor/data/editor.db` holds your actual
 project/timeline work, so unlike the rest of this repo's temp/local media, it's committed to git.
-
-## Campaigns & publishing
-
-A **campaign** groups related cuts and the accounts they publish to. The Campaigns surface is
-list → detail: the list shows each campaign with a one-line "what's next"; opening one shows a
-hub with KPIs (reach, spend), a schedule (calendar + list views), per-post detail (metrics +
-boost), and a **Learn** card that turns post performance into filming suggestions.
-
-Publishing goes through Composio adapters (`editor/social/`), one file per platform. **Safety
-is the default:** `SOCIAL_DRY_RUN=1` walks the entire pipeline — schedule → claim → publish job
-— and logs the exact payload instead of calling the platform. Going live is a deliberate,
-per-campaign **arm** switch plus a confirm dialog showing the exact account; failures surface
-loudly on the post, and a publish that may have gone out is never auto-retried. Instagram is the
-first adapter (Business/Creator accounts); the platform matrix and tiers live in
-`specs/social-adapters.html`.
 
 ## Tests
 
@@ -219,4 +191,4 @@ zip"* to confirm the tools are live.
 ## Notes
 - Large binaries (raw/rendered video) are kept out of git via `.gitignore` — they're temporary/local.
 
-_Status: working app — ingest → index → AI assemble → conversational revise → subject-tracking vertical export → campaign scheduling & publishing (dry-run by default). See `ROADMAP.md` for what's shipped and what's next._
+_Status: working prototype. Current output: a sample vertical cut (`IMG_2926`, caterpillar macro)._

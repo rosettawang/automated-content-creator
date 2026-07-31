@@ -17,7 +17,7 @@ import logging
 import os
 
 from composio_wrapper import execute_action, list_connected_accounts, get_client
-from social.base import register, PublishResult
+from social.base import register
 
 log = logging.getLogger("editor.social.instagram")
 
@@ -25,21 +25,6 @@ log = logging.getLogger("editor.social.instagram")
 # The numeric IG user id is what the publish API needs — NOT the Composio 'ca_...' ref.
 _IG_ID_FIELDS = ("ig_id", "instagram_business_account", "instagram_user_id",
                  "ig_user_id", "user_id", "id")
-
-
-def _permalink_for(external_id: str, pdata: dict) -> str | None:
-    """Public URL of a just-published post. Prefer a permalink the API handed back;
-    else build one from a shortcode/code if present. Returns None when neither is
-    available (the UI then falls back to an 'open profile' link) — we never fabricate a
-    URL from the media id, since Instagram ids are not shortcodes."""
-    for key in ("permalink", "permalink_url", "url"):
-        val = pdata.get(key)
-        if val:
-            return str(val)
-    shortcode = pdata.get("shortcode") or pdata.get("code")
-    if shortcode:
-        return f"https://www.instagram.com/p/{shortcode}/"
-    return None
 
 
 def _resolve_ig_user_id(account_ref: str) -> str | None:
@@ -170,7 +155,7 @@ class InstagramAdapter:
         external_id = pdata.get("id")
         if not external_id:
             raise RuntimeError(f"Instagram publish returned no post id: {json.dumps(published)[:300]}")
-        return PublishResult(str(external_id), _permalink_for(external_id, pdata))
+        return str(external_id)
 
     def fetch_metrics(self, post: dict) -> dict:
         if not post.get("external_id"):

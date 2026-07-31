@@ -10,26 +10,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import NamedTuple, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 log = logging.getLogger("editor.social")
-
-
-class PublishResult(NamedTuple):
-    """What an adapter's publish() may return: the platform post id and (optionally)
-    the public permalink. Adapters may still return a bare str id for back-compat —
-    the scheduler normalizes both. The adapter OWNS the permalink because URL formats
-    differ per platform and must never be guessed from the id client-side."""
-    external_id: str
-    permalink: str | None = None
-
-
-def split_publish_result(result) -> tuple[str, str | None]:
-    """Normalize an adapter publish() return (str id OR PublishResult) to
-    (external_id, permalink)."""
-    if isinstance(result, PublishResult):
-        return str(result.external_id), result.permalink
-    return str(result), None
 
 # Platforms the UI offers. A platform being listed here does NOT mean a real adapter
 # exists — without one (and with dry-run off) publishing raises loudly.

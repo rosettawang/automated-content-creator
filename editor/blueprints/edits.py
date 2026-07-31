@@ -83,50 +83,7 @@ def list_edits():
                    LEFT JOIN campaigns p ON p.id = e.campaign_id
                    GROUP BY e.id ORDER BY e.created_at DESC"""
             ).fetchall()
-
-        edits = [dict(r) for r in rows]
-        _attach_post_summaries(conn, edits)
-    return jsonify(edits)
-
-
-def _attach_post_summaries(conn, edits: list[dict]) -> None:
-    """Add per-cut `posts` (platform status icons) and `last_export` to each edit.
-    Two grouped queries over the whole result set — never one-per-cut (N+1)."""
-    ids = [e["id"] for e in edits]
-    for e in edits:
-        e["posts"] = []
-        e["last_export"] = None
-    if not ids:
-        return
-    ph = ",".join("?" for _ in ids)
-
-    # All posts for these cuts in one query. A dry-run publish leaves permalink NULL,
-    # so a colored icon only ever means a real published post.
-    for r in conn.execute(
-        f"""SELECT edit_id, id AS post_id, platform, status, scheduled_at, permalink
-            FROM posts WHERE edit_id IN ({ph}) ORDER BY id""",
-        ids,
-    ):
-        for e in edits:
-            if e["id"] == r["edit_id"]:
-                e["posts"].append({
-                    "post_id": r["post_id"], "platform": r["platform"],
-                    "status": r["status"], "scheduled_at": r["scheduled_at"],
-                    "permalink": r["permalink"],
-                })
-                break
-
-    # Latest export per cut in one query (most-recent row wins).
-    for r in conn.execute(
-        f"""SELECT edit_id, path, finished_at FROM edit_exports
-            WHERE edit_id IN ({ph})
-            AND id IN (SELECT MAX(id) FROM edit_exports WHERE edit_id IN ({ph}) GROUP BY edit_id)""",
-        ids + ids,
-    ):
-        for e in edits:
-            if e["id"] == r["edit_id"]:
-                e["last_export"] = {"at": r["finished_at"], "path": r["path"]}
-                break
+    return jsonify([dict(r) for r in rows])
 
 
 @bp.post("/api/edits")
@@ -824,8 +781,7 @@ def export_campaign(edit_id):
     threading.Thread(
         target=_run_export_job,
         args=(job_id, campaign["name"], explicit_aspect, dims, plan),
-        kwargs={"audio_mode": audio_mode, "vo_script": vo_script,
-                "music_path": music_path, "edit_id": edit_id},
+        kwargs={"audio_mode": audio_mode, "vo_script": vo_script, "music_path": music_path},
         daemon=True,
     ).start()
     return jsonify({"job_id": job_id})
