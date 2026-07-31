@@ -26,8 +26,11 @@ __pycache__/
 # pywebview auto-creates this on macOS for its pyobjc/Cocoa backend when the
 # system Python lacks pyobjc -- a generated runtime artifact, not source.
 editor/venv/
-# API keys (Composio, Anthropic, etc.) -- never commit secrets
+# API keys (Composio, Anthropic, OpenAI, etc.) -- never commit secrets.
+# Also covers backups like .env.bak-premove, which hold the same live keys.
 editor/.env
+editor/.env.*
+!editor/.env.example
 # Generated caches (regenerable from source media) -- not source
 editor/data/thumbs/
 editor/data/faces/
@@ -40,6 +43,11 @@ editor/content_creator.egg-info/
 # local DB safety backups
 editor/data/*.bak-*
 editor/data/*.bak
+# Catch-all for every editor.db sidecar/copy, because the two patterns above are
+# narrower than they look: they need a literal ".bak", so a file written as
+# editor.db.hygiene-bak-<ts> slipped through and was staged for this PUBLIC repo
+# (caught Jul 31, 2026). Anything derived from the live DB stays local.
+editor/data/editor.db.*
 # SQLite WAL sidecars (WAL mode) — regenerated, never source
 editor/data/*.db-wal
 editor/data/*.db-shm
