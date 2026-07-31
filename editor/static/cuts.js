@@ -13,6 +13,75 @@ function cutsCampaignOptions(selectedId) {
   return opts.join("");
 }
 
+// Platforms to always surface an icon for (a new adapter's platform also appears
+// automatically once a cut has a post on it — see below).
+const CUT_PLATFORMS = ["instagram"];
+const PLATFORM_GLYPH = { instagram: "IG", tiktok: "TT", youtube: "YT", facebook: "FB" };
+
+// Build the platform status-icon row for a cut. Four states per platform:
+//   not-posted (gray/dashed) · scheduled (clock) · published (color) · failed (red).
+// The row NEVER publishes — it only navigates (composer / post detail / live URL).
+function renderPlatformIcons(e) {
+  const row = document.createElement("div");
+  row.className = "cut-platforms";
+
+  // Latest post per platform (posts arrive id-ascending, so last wins).
+  const byPlatform = {};
+  (e.posts || []).forEach((p) => { byPlatform[p.platform] = p; });
+  const platforms = [...new Set([...CUT_PLATFORMS, ...Object.keys(byPlatform)])];
+
+  platforms.forEach((platform) => {
+    const post = byPlatform[platform];
+    const btn = document.createElement("button");
+    btn.className = "plat-icon";
+    btn.textContent = PLATFORM_GLYPH[platform] || platform.slice(0, 2).toUpperCase();
+
+    const status = post ? post.status : "none";
+    if (!post || status === "draft" || status === "cancelled") {
+      btn.classList.add("plat-none");
+      btn.title = `Not posted to ${platform} — click to compose`;
+      btn.onclick = () => openComposer(e, platform);
+    } else if (status === "scheduled" || status === "claimed") {
+      btn.classList.add("plat-scheduled");
+      btn.title = post.scheduled_at
+        ? `Scheduled for ${new Date(post.scheduled_at).toLocaleString()}`
+        : "Scheduled";
+      btn.onclick = () => openPostDetailFromCut(post.post_id);
+    } else if (status === "failed" || status === "needs_review") {
+      btn.classList.add("plat-failed");
+      btn.title = `Publish failed on ${platform} — click for details`;
+      btn.onclick = () => openPostDetailFromCut(post.post_id);
+    } else if (status === "published") {
+      btn.classList.add("plat-published");
+      if (post.permalink) {
+        btn.title = `Live on ${platform} — open post`;
+        btn.onclick = () => window.open(post.permalink, "_blank", "noopener");
+      } else {
+        // Published but no stored permalink (dry-run legacy / adapter didn't return one):
+        // still colored, but open the post detail rather than guessing a URL.
+        btn.title = `Published to ${platform} (no link stored) — open details`;
+        btn.onclick = () => openPostDetailFromCut(post.post_id);
+      }
+    }
+    row.appendChild(btn);
+  });
+  return row;
+}
+
+// Navigate to the campaign hub's composer, prefilled with this cut + platform.
+function openComposer(edit, platform) {
+  if (window.studioComposeForCut) {
+    window.studioComposeForCut({ editId: edit.id, campaignId: edit.campaign_id, platform });
+  } else {
+    window.location.href = `/campaigns?compose=${edit.id}&platform=${platform}`;
+  }
+}
+
+function openPostDetailFromCut(postId) {
+  if (window.studioOpenPostDetail) window.studioOpenPostDetail(postId);
+  else window.location.href = `/campaigns?post=${postId}`;
+}
+
 async function loadCuts() {
   const grid = document.getElementById("cuts-grid");
   const empty = document.getElementById("cuts-empty");
@@ -128,7 +197,7 @@ async function loadCuts() {
     };
     actions.append(openBtn, renameBtn, delBtn);
 
-    body.append(name, meta, assign, actions);
+    body.append(name, meta, renderPlatformIcons(e), assign, actions);
     card.append(thumb, body);
     grid.appendChild(card);
   });

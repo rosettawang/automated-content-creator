@@ -659,6 +659,58 @@ body {
 }
 .cut-meta { font-size: 0.78rem; color: #999; }
 
+/* ---- platform status icons (spec: platform-links) ---- */
+.cut-platforms { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.plat-icon {
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 6px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  position: relative;
+}
+/* Not posted: grayed, dashed border. */
+.plat-icon.plat-none {
+  background: #232323;
+  color: #777;
+  border: 1px dashed #555;
+}
+.plat-icon.plat-none:hover { color: #aaa; border-color: #777; }
+/* Scheduled: muted with a small clock badge. */
+.plat-icon.plat-scheduled {
+  background: #2a2820;
+  color: #cbb377;
+  border: 1px solid #5a5030;
+}
+.plat-icon.plat-scheduled::after {
+  content: "🕑";
+  position: absolute;
+  top: -0.4rem;
+  right: -0.4rem;
+  font-size: 0.6rem;
+}
+/* Published: full color, solid border. */
+.plat-icon.plat-published {
+  background: #2a3a2a;
+  color: #8fe08f;
+  border: 1px solid #4a7a4a;
+}
+.plat-icon.plat-published:hover { background: #325232; }
+/* Failed: red accent. */
+.plat-icon.plat-failed {
+  background: #3a2626;
+  color: #e8a0a0;
+  border: 1px solid #7a4444;
+}
+.plat-icon.plat-failed:hover { background: #4a2e2e; }
+
 .cut-assign {
   font-size: 0.78rem;
   padding: 0.3rem 0.4rem;

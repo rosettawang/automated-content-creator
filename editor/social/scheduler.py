@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 
 from db import get_conn
 from jobs_runtime import _new_job, _update_job
-from social.base import get_adapter, dry_run_enabled
+from social.base import get_adapter, dry_run_enabled, split_publish_result
 
 log = logging.getLogger("editor.social.scheduler")
 
@@ -102,16 +102,19 @@ def publish_post(post_id: int) -> None:
                 "settings (or keep SOCIAL_DRY_RUN=1) to post."
             )
         adapter = get_adapter(post["platform"])
-        external_id = adapter.publish(post)
+        # Adapters may return a bare id (legacy / dry-run) or a PublishResult carrying
+        # the public permalink. Dry-run never yields a permalink, so a gray/pre-publish
+        # icon stays truthful about the real platform.
+        external_id, permalink = split_publish_result(adapter.publish(post))
         conn.execute(
-            "UPDATE posts SET status = 'published', external_id = ?, published_at = ?, "
-            "error = NULL, updated_at = ? WHERE id = ?",
-            (external_id, _now_iso(), _now_iso(), post_id),
+            "UPDATE posts SET status = 'published', external_id = ?, permalink = ?, "
+            "published_at = ?, error = NULL, updated_at = ? WHERE id = ?",
+            (external_id, permalink, _now_iso(), _now_iso(), post_id),
         )
         conn.commit()
         _update_job(job_id, phase="done", done=1, finished=True)
-        log.info("post %s published (external_id=%s, dry_run=%s)",
-                 post_id, external_id, dry_run_enabled())
+        log.info("post %s published (external_id=%s, permalink=%s, dry_run=%s)",
+                 post_id, external_id, permalink, dry_run_enabled())
     except Exception as e:  # fail loudly: the row goes red, the error is stored
         conn.execute(
             "UPDATE posts SET status = 'failed', error = ?, updated_at = ? WHERE id = ?",

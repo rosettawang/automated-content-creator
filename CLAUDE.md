@@ -5,9 +5,12 @@ Most code here is written by Claude sessions, sometimes several in parallel. The
 ## Documentation policy — three living docs, everything else has a lifecycle
 
 - **Living (must always be true):** `README.md` (how to run/use), `ROADMAP.md` (priorities + status; the single intake point for new ideas), and this file. If a commit changes how the app runs or is used, update `README.md` **in the same commit**.
-- **Specs live in `specs/`, one file per unbuilt feature.** As many as needed. A spec's lifecycle ends when the feature ships: **delete the spec file** in the shipping commit and strike its line in `ROADMAP.md`. Git history is the archive. Never "update" a shipped spec.
+- **Specs live in `specs/`, one file per unbuilt feature — as `.html`, not `.md`** (owner preference: specs are read rendered in a browser). As many as needed. A spec's lifecycle ends when the feature ships: **delete the spec file** in the shipping commit and strike its line in `ROADMAP.md`. Git history is the archive. Never "update" a shipped spec.
+- **Writing a new spec:** copy the `<head>` (inline styles) from any existing file in `specs/` and write semantic HTML (`h1/h2`, `p`, `ul/ol`, `table`, `pre><code`, `del` for struck items). Keep the same content conventions as before: an **Owns:** line (files the spec may touch), a **Parallel:** line (what it can/can't run alongside), and an **Acceptance** section. Edit spec content directly in the HTML — don't maintain a parallel .md.
+- **`specs/index.html` is the specs dashboard — the fourth living doc.** It lists open specs, bottlenecks, and a **login-gated queue**: whenever executing a spec hits a step that needs the owner signed in to something (OAuth consent, platform confirmation, private-content access), add a row there (task, owning spec, URL, how far Claude can drive it, what the owner's confirming click is) and continue with what's automatable — don't stall the spec. The owner clears the queue in batches via the Chrome extension: Claude drives each tab to the last safe step; the owner signs in and clicks the final button (Claude never enters credentials or clicks an irreversible publish/authorize). Strike queue rows when verified; remove spec rows when specs ship.
+- **Every spec run ends with a run report in `specs/index.html` — no exceptions.** Before finishing any session that executed spec work, record each outcome as a row in the matching section: (1) step needs the owner signed in → **login-gated queue**; (2) a choice only the owner can make → **Decisions needed** (state the options, put the recommended default first, say what happens if unanswered — never silently pick and bury it in a commit); (3) built behavior deviates from the spec text → **Reconciliations** row AND update the owning spec's HTML in the same commit so the spec reads true. Also refresh the spec's status cell in the Open specs table. A run that ends without recording is an unfinished run.
 - **`docs/archive/` is frozen history** (old plans, review logs). Never edit archived files; never treat them as current documentation.
-- Don't create new top-level .md files. New idea → line in `ROADMAP.md`; new design → file in `specs/`.
+- Don't create new top-level .md files. New idea → line in `ROADMAP.md`; new design → `.html` file in `specs/`.
 
 ## Code conventions
 
@@ -21,9 +24,10 @@ Most code here is written by Claude sessions, sometimes several in parallel. The
   - Dependency DAG (never violate): `config`/`db` → `jobs_runtime`/`media_files`/`settings` → `indexing`/`export` → `catalog`/`ingest` → `core`. No module imports `core`; no cycles.
 - Adding shared logic: put it in the module that owns that concern (extract a new one if it fits nothing), then re-export it from `core.py` alongside the others. Prefer extracting over growing a file. Target: no module over ~800 lines (`indexing.py` is the known exception — one cohesive pipeline).
 - Schema changes go through migrations (see `ROADMAP.md` Priority 2), not ad-hoc `CREATE TABLE`/`ALTER` scattered in code.
+- **Naming: "edit" (code) = "cut" (UI) — this is intentional, don't "fix" it.** An assembled timeline is the `edits` table / `edit_id` FKs / `/api/edits*` routes / `currentEditId` in JS, but is shown to the user as a **"cut"** (the Cuts view, "cut" copy). Stable internal name + friendly display name is deliberate — the same object, two audiences. Do NOT rename one to match the other on sight: unifying would mean a table+FK migration, ~16 route renames, six JS files, and every test hitting `/api/edits`, for zero user value. If a full rename is ever actually wanted, it's a spec (project→campaign-sized), not a drive-by.
 - Long work runs as a job (`jobs` table, reconciled at boot) — never inside an HTTP request.
 - Fail loudly: any user-facing failure (playback, export, publish) must surface in the UI, never only in a log. Pre-flight checks over post-hoc errors.
-- Social publishing (when built): follow `specs/social-publishing.md` strictly — DB-driven scheduling, atomic claims, idempotency keys, `SOCIAL_DRY_RUN=1` default. Never auto-retry a publish that may have gone out.
+- Social publishing (when built): follow `specs/social-publishing.html` strictly — DB-driven scheduling, atomic claims, idempotency keys, `SOCIAL_DRY_RUN=1` default. Never auto-retry a publish that may have gone out.
 
 ## Process
 
@@ -31,3 +35,4 @@ Most code here is written by Claude sessions, sometimes several in parallel. The
 - Commit small, with a checkpoint commit before any large rename/refactor.
 - One writer per file: if another session (or the user) may be editing concurrently, coordinate via ROADMAP or work on a branch. Check `git status` before large edits.
 - The app may be running (waitress via `desktop.py`, or `FLASK_DEBUG=1` dev mode) while you edit — remember a running server doesn't pick up Python changes without a restart.
+- **Never leave the app server running from a session's sandboxed shell.** A server launched there inherits the sandbox's network allowlist — Drive/Photos imports then fail with `PermissionError(1, 'Operation not permitted')` on every connection. If a restart is needed, ask the user to relaunch from their own Terminal.

@@ -83,6 +83,20 @@ def _require_app() -> None:
     )
 
 
+def _poll_job(c: httpx.Client, job_id: str) -> list[dict]:
+    """Poll a background import job (/api/import-jobs/<id>) to completion and return
+    its per-item results. Shared by URL imports and clip re-downloads."""
+    deadline = time.monotonic() + 600  # generous: albums/folders can be large
+    while time.monotonic() < deadline:
+        snap = c.get(f"/api/import-jobs/{job_id}").json()
+        if snap.get("finished"):
+            if snap.get("error"):
+                return [{"status": "error", "error": snap["error"]}]
+            return snap.get("results", [])
+        time.sleep(2.0)
+    return [{"status": "error", "error": "import timed out after 10 minutes"}]
+
+
 def _run_import_job(c: httpx.Client, endpoint: str, urls: list[str]) -> list[dict]:
     """POST a url-based import (Drive/Photos), then poll its background job until
     finished and return the per-item results. The app runs these async and reports
@@ -93,15 +107,7 @@ def _run_import_job(c: httpx.Client, endpoint: str, urls: list[str]) -> list[dic
     job_id = resp.json().get("job_id")
     if not job_id:
         return [{"status": "error", "error": "app did not return a job id"}]
-    deadline = time.monotonic() + 600  # generous: albums/folders can be large
-    while time.monotonic() < deadline:
-        snap = c.get(f"/api/import-jobs/{job_id}").json()
-        if snap.get("finished"):
-            if snap.get("error"):
-                return [{"status": "error", "error": snap["error"]}]
-            return snap.get("results", [])
-        time.sleep(2.0)
-    return [{"status": "error", "error": "import timed out after 10 minutes"}]
+    return _poll_job(c, job_id)
 
 
 @mcp.tool()
@@ -177,6 +183,33 @@ def search_clips(query: str = "") -> dict:
 
 
 @mcp.tool()
+def redownload_clip(clip_id: int) -> dict:
+    """Re-download a "not local" clip's media from its recorded source (Drive/Photos)
+    and relink it, so it becomes playable/exportable again.
+
+    Use when `search_clips` shows a clip with available_locally=false — its file was
+    pulled out of the media folder but the catalog row (and its source) remain. This
+    only re-fetches EXISTING clips; use `import_media` to bring in new footage.
+
+    Idempotent: if the clip is already downloaded it returns immediately. Fails
+    cleanly when the clip has no recorded remote source (import its file manually).
+    """
+    _require_app()
+    with _client() as c:
+        resp = c.post(f"/api/clips/{clip_id}/pull")
+        if resp.status_code != 200:
+            return {"error": _err(resp)}
+        data = resp.json()
+        if data.get("status") == "present":
+            return {"status": "already_local", "message": data.get("message", "already downloaded")}
+        job_id = data.get("job_id")
+        if not job_id:
+            return {"error": "app did not return a job id"}
+        results = _poll_job(c, job_id)
+    return {"status": "done", "source_kind": data.get("source_kind"), "results": results}
+
+
+@mcp.tool()
 def assemble_cut(
     prompt: str,
     clip_ids: list[int] | None = None,
@@ -191,7 +224,14 @@ def assemble_cut(
     creates an edit — optionally filed under a campaign. (In the API a campaign id is
     passed as `campaign_id`, the underlying field name.)
 
-    - prompt: what the video should be (e.g. "30s upbeat montage of pollinators").
+    Framing: the model also infers the output aspect from the prompt ("a vertical
+    reel" → 9:16, "square" → 1:1). On export, clips are subject-tracking reframed to
+    that aspect (indexed subject regions drive a per-clip crop/pan) rather than
+    blind center-crop — so an edit assembled here is already framed for the target
+    format. Word the prompt with the destination in mind, or change the aspect later
+    in the editor.
+
+    - prompt: what the video should be (e.g. "30s vertical montage of pollinators").
     - clip_ids: optional — restrict the pool to these library clip ids.
     - campaign_id: optional — file the new edit under this campaign (its description
       is also fed to the model as context). Omit for a standalone edit.
@@ -221,6 +261,110 @@ def assemble_cut(
         "selections": data.get("selections", []),
         "next_step": "Open this edit in the editor window to review and export.",
     }
+
+
+@mcp.tool()
+def list_campaigns() -> dict:
+    """List campaigns (themes that group edits, e.g. "Holiday campaign", "Gardening"),
+    with id, name, description, and clip count."""
+    _require_app()
+    with _client() as c:
+        resp = c.get("/api/campaigns")
+    if resp.status_code != 200:
+        return {"error": _err(resp)}
+    rows = resp.json()
+    fields = ("id", "name", "description", "clip_count")
+    return {"count": len(rows), "campaigns": [{k: r.get(k) for k in fields} for r in rows]}
+
+
+@mcp.tool()
+def create_campaign(name: str, description: str = "") -> dict:
+    """Create a campaign (a theme that groups edits). The description is saved and
+    used as context when assembling edits under it; the app also infers "things to
+    watch for" from it. Returns the new campaign id and any inferred things."""
+    _require_app()
+    with _client() as c:
+        resp = c.post("/api/campaigns", json={"name": name, "description": description})
+    if resp.status_code != 200:
+        return {"error": _err(resp)}
+    data = resp.json()
+    return {
+        "campaign_id": data.get("id"),
+        "name": data.get("name"),
+        "description": data.get("description"),
+        "inferred_things": data.get("inferred_things", []),
+    }
+
+
+@mcp.tool()
+def list_edits(campaign_id: int | None = None) -> dict:
+    """List edits (assembled cuts). With `campaign_id`, only that campaign's edits;
+    without it, every edit including unassigned ones. Each has id, name, campaign,
+    clip count, and total duration."""
+    _require_app()
+    params = {"campaign": str(campaign_id)} if campaign_id is not None else {}
+    with _client() as c:
+        resp = c.get("/api/edits", params=params)
+    if resp.status_code != 200:
+        return {"error": _err(resp)}
+    return {"edits": resp.json()}
+
+
+@mcp.tool()
+def get_edit(edit_id: int) -> dict:
+    """Get one edit's full detail: its name, campaign, aspect, and the ordered
+    timeline items (clip, in/out points). Use to inspect what a cut contains before
+    revising or exporting."""
+    _require_app()
+    with _client() as c:
+        resp = c.get(f"/api/edits/{edit_id}")
+    if resp.status_code != 200:
+        return {"error": _err(resp)}
+    return resp.json()
+
+
+@mcp.tool()
+def revise_edit(edit_id: int, instruction: str) -> dict:
+    """Apply a natural-language revision to an existing edit's timeline — e.g.
+    "tighten it to 20 seconds", "open on the butterfly shot", "drop the machinery
+    clips", "make it square". Snapshots first so it can be undone in the editor.
+    Returns the revised timeline."""
+    _require_app()
+    with _client() as c:
+        resp = c.post(f"/api/edits/{edit_id}/chat", json={"prompt": instruction})
+    if resp.status_code != 200:
+        return {"error": _err(resp)}
+    return resp.json()
+
+
+@mcp.tool()
+def export_edit(edit_id: int) -> dict:
+    """Render an edit to an mp4 in clips_out/ (trims, subject-tracking reframes to the
+    edit's aspect, normalizes fps). Runs as a background job; this polls to completion
+    and returns the output. Pre-flight fails cleanly (409) if any clip's media is
+    missing — pull/import those first."""
+    _require_app()
+    with _client() as c:
+        resp = c.post(f"/api/edits/{edit_id}/export")
+        if resp.status_code != 200:
+            return {"error": _err(resp)}
+        job_id = resp.json().get("job_id")
+        if not job_id:
+            return {"error": "app did not return a job id"}
+        results = _poll_job(c, job_id)
+    return {"status": "done", "results": results}
+
+
+@mcp.tool()
+def suggest_content() -> dict:
+    """Ask Claude what footage is missing and worth filming next, based on the current
+    library (and how past posts performed). Returns a list of {idea, rationale}."""
+    _require_app()
+    with _client() as c:
+        resp = c.post("/api/suggest-content")
+    if resp.status_code != 200:
+        return {"error": _err(resp)}
+    return resp.json()
 
 
 def _err(resp: httpx.Response) -> str:

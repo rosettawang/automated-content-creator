@@ -242,6 +242,9 @@ saveBtn.addEventListener("click", async () => {
 
 // ============================ Campaign drawer ============================
 let drawerCampaign = null;
+// Set when the drawer's composer was opened from a cut's platform icon, so the
+// created post links back to that edit (cleared once the drawer reopens plainly).
+let composeEditId = null;
 
 const drawer = document.getElementById("campaign-drawer");
 // The pane that hosts the drawer (in the unified shell); null on a standalone page.
@@ -249,6 +252,7 @@ const campaignsPane = drawer.closest('.studio-pane[data-panel="campaigns"]');
 
 function openDrawer(campaign) {
   drawerCampaign = campaign;
+  composeEditId = null;  // plain open — not tied to a cut until the compose hook says so
   document.getElementById("drawer-title").textContent = campaign.name;
   document.getElementById("drawer-desc").textContent = campaign.description || "";
   document.getElementById("cmp-context-doc").value = campaign.context_doc || "";
@@ -754,6 +758,9 @@ async function submitPost({ schedule }) {
   const schedBtn = document.getElementById("cmp-post-schedule-btn");
 
   const body = { platform, caption, hashtags };
+  // When the composer was opened from a specific cut (its platform icon), link the
+  // post to that edit so it shows back on the cut's status icons.
+  if (composeEditId) body.edit_id = composeEditId;
   if (schedule) {
     if (!whenEl.value) { status.textContent = "Pick a date & time to schedule."; return; }
     // datetime-local is local wall-time; send UTC ISO so it compares against the
@@ -791,5 +798,38 @@ document.getElementById("cmp-post-form").addEventListener("submit", (e) => {
 document.getElementById("cmp-post-schedule-btn").addEventListener("click", () => {
   submitPost({ schedule: true });
 });
+
+// ---- cross-panel hooks (Cuts view platform icons → campaign hub) ----
+// Ensure the given campaign's drawer is open (opening the panel too, in the shell).
+async function _ensureDrawer(campaignId) {
+  if (window.studioOpenPanel) window.studioOpenPanel("campaigns");
+  if (drawerCampaign && String(drawerCampaign.id) === String(campaignId)) return;
+  let camp = (campaignsById && campaignsById[campaignId])
+    || Object.values(campaignsById || {}).find((c) => String(c.id) === String(campaignId));
+  if (!camp) { try { camp = await api(`/api/campaigns/${campaignId}`); } catch (_) { return; } }
+  openDrawer(camp);
+}
+
+// Open the composer for a cut+platform: reveal the drawer, preselect the platform,
+// and remember the edit so the created post links back to this cut.
+window.studioComposeForCut = async ({ editId, campaignId, platform }) => {
+  if (!campaignId) { alert("Assign this cut to a campaign first, then post it."); return; }
+  await _ensureDrawer(campaignId);
+  composeEditId = editId;
+  const sel = document.getElementById("cmp-post-platform");
+  if (sel && platform) sel.value = platform;
+  const cap = document.getElementById("cmp-post-caption");
+  if (cap) cap.focus();
+};
+
+// Open a post's detail panel (scheduled / failed / published-no-link icons).
+window.studioOpenPostDetail = async (postId) => {
+  if (window.studioOpenPanel) window.studioOpenPanel("campaigns");
+  try {
+    const p = await api(`/api/posts/${postId}`);
+    if (p && p.campaign_id) await _ensureDrawer(p.campaign_id);
+  } catch (_) { /* fall through — openPostDetail will surface the error */ }
+  openPostDetail(postId);
+};
 
 loadCampaigns();
