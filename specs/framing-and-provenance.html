@@ -5,6 +5,10 @@
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <title>framing-and-provenance</title>
+<meta name="spec-status" content="open" />
+<meta name="spec-touches" content="editor/export.py editor/blueprints/edits.py editor/claude_client.py crop.js" />
+<meta name="spec-blocker" content="Nearly done — only Stage 5 (export frame-check) remains, and it is gated behind a setting that is off by default. See the decision. Parallel-safe with the backend specs." />
+<meta name="spec-decision" content="Enable the export frame-check (Stage 5)? Recommended: keep off — framing v2 has been accurate, and this is a recurring per-export vision cost (~1 call/segment). Alternatives: per-export toggle, or wait for an on-device detector. Does not block; the spec tail just stays open." />
   <style>
     code{white-space: pre-wrap;}
     span.smallcaps{font-variant: small-caps;}

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="spec-status" content="canonical" />
+<title>Content creator — spec run log</title>
+<link rel="stylesheet" href="spec.css" />
+</head>
+<body>
+<div class="internal">Internal — <b>the durable memory of a spec run</b></div>
+<div class="wrap">
+<p><a href="index.html">← Specs index</a></p>
+<h1>Spec run log</h1>
+<p class="lede">A long run outlives its own context — the conversation gets summarized while the run is still going. This file is where each spec's outcome is written <strong>as it finishes</strong>, so the end-of-run report is generated from disk, not from a faded memory. Append here; never batch at the end.</p>
+
+<div class="callout">
+<h4>What each entry records</h4>
+<p>What shipped · <strong>how it was verified</strong> (the command, the test, what you exercised — not the word "verified") · what was deviated from and why · what is left. Write it for someone who was not here.</p>
+</div>
+
+<h2>Runs</h2>
+<p class="meta">Newest run on top. A run is one <code>/spec-run</code> sitting; a row per spec inside it.</p>
+
+<!-- Template — copy for each spec worked, newest run at the top:
+
+<h3>2026-__-__ — &lt;run title&gt;</h3>
+<table>
+<tr><th>Spec</th><th>Outcome</th><th>Verified how</th><th>Deviations / left</th></tr>
+<tr>
+  <td>&lt;slug&gt;</td>
+  <td>shipped / blocked / decision-waiting</td>
+  <td>./run_tests.sh green (N tests); assembled → chat-revised → exported the real loop</td>
+  <td>&lt;what changed vs the spec, what remains&gt;</td>
+</tr>
+</table>
+-->
+
+<p><em>No runs logged yet. The first <code>/spec-run</code> writes here.</em></p>
+
+</div>
+</body>
+</html>

@@ -5,6 +5,10 @@
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <title>mcp-server</title>
+<meta name="spec-status" content="open" />
+<meta name="spec-touches" content="editor/mcp_server.py" />
+<meta name="spec-blocker" content="Core shipped 2026-07-17. Open: multi-account posting (gated on go-live), more tools, PyPI packaging, remote transport. The publish tool was answered yes 2026-07-27 but stays gated until social-adapters Phase C is live-verified." />
+<meta name="spec-decision" content="Rename edits→cuts end-to-end (DB/API/JS)? Recommended: keep the frozen boundary (UI says cut, code says edit) per CLAUDE.md — a full rename is spec-sized (table+FK migration, ~16 route renames, 6 JS files, every /api/edits test). Does not block, but each new feature bakes in the old name (posts.edit_id already shipped in migration 004)." />
   <style>
     code{white-space: pre-wrap;}
     span.smallcaps{font-variant: small-caps;}

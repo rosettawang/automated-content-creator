@@ -5,6 +5,11 @@
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <title>social-adapters</title>
+<meta name="spec-status" content="blocked" />
+<meta name="spec-needs" content="instagram-go-live" />
+<meta name="spec-touches" content="editor/social/instagram.py editor/social/base.py" />
+<meta name="spec-blocker" content="Instagram adapter built + dry-run gated; Phase C acceptance is live go-live verification, which is the instagram-go-live spec. Blocked on that. Shares editor/social/instagram.py with it — sequence, do not parallelize." />
+<meta name="spec-decision" content="Which platform earns the second adapter? Recommended: whichever the org actually has an account on (the social-adapters-tiktok branch suggests TikTok — but verify the direct-upload path, since public-URL publish won't work from a local app). Spec rule: no adapter for an account nobody has connected. Does not block." />
   <style>
     code{white-space: pre-wrap;}
     span.smallcaps{font-variant: small-caps;}
