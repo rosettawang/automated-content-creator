@@ -43,6 +43,10 @@ Scheduled posts, analytics, and recommendations under Campaigns, via Composio. E
 
 A thin-proxy MCP server (`editor/mcp_server.py`) lets Claude import footage, search the library, and assemble edits over the same HTTP endpoints the UI uses — one source of truth, and writes propagate to the editor via its live-refresh poll. **Core shipped 2026-07-17:** stdio + `content-creator-mcp` entry point, auto-start, `import_media`/`search_clips`/`redownload_clip`/`assemble_cut`, portable `.mcp.json`, README install flow. **(B) shipped 2026-07-28:** added `list_campaigns`/`create_campaign`/`list_edits`/`get_edit`/`revise_edit`/`export_edit`/`suggest_content` — 11 tools total; all thin proxies, verified live. Remaining in the spec: (A) multi-account posting — one Instagram account per campaign (gated on social-adapters C, real posting irreversible); (C) PyPI packaging for `uvx` clone-free install; (D) remote/hosted MCP — only if a shared multi-user library is ever wanted.
 
+## Priority 3.8 — AI provider switch: Claude ⇄ Kimi as a setting (spec: `specs/ai-provider-switch.html`)
+
+Every model call currently goes to Anthropic, and the expensive ones (deep-index over sampled frames, rough-cut generation, edit chat) run Opus-tier. Kimi K3 is OpenAI-wire-compatible with a 1M context and supports the three things this app needs — vision, strict JSON-schema structured output, prompt caching — at substantially lower cost. The efficiency pass already funnelled 11 of 12 model calls through one `_parse()` helper, so the split has a single seam. Plan: provider setting (env default + DB override + `/api/settings`, mirroring the on-device toggle), a `_parse()` fork with message translation (images → `image_url` data URIs, `system` → leading message), a sync fallback for the Claude-only Batch API path, and a picker in the Things panel beside the on-device toggle. **Account-gated:** needs a Moonshot API key (Login-gated queue #6) for live verification only — steps 1–5 build and test without it. Five owner decisions waiting in the spec (model choice, batch fallback, module rename, HTTP client, setting scope). Contends with `framing-and-provenance` over `claude_client.py` — sequence, don't parallelize.
+
 ## Priority 4 — Papercuts (opportunistic, none blocking)
 
 9. ~~Aspect from prompt wording ("vertical" → 9:16 on the edit).~~ ✅ Done (`aspect-from-prompt`) — model infers the frame on generate; "make it square" in chat reframes; explicit choices aren't clobbered.
@@ -75,6 +79,7 @@ Every spec in `specs/` declares which files it owns; two sessions may run concur
 | `social-publishing` | frontend, tests, data-hygiene | — | test-suite gates real posting |
 | `audio-design` | frontend, social-publishing | framing-and-provenance tail (both touch export.py) | sequenced after aspect-from-prompt (shipped) |
 | ~~`efficiency-pass`~~ (shipped) | — | — | — |
+| `ai-provider-switch` | frontend, social specs, data-hygiene | `framing-and-provenance` (both edit `claude_client.py`) | live verification only: Moonshot API key (queue #6) |
 
 `test-suite`, `schema-migrations`, `core-split`, and `aspect-from-prompt` are all shipped, so the remaining feature specs (`framing-and-provenance`, `social-publishing`) are unblocked — they no longer collide with an in-flight import-touching refactor.
 

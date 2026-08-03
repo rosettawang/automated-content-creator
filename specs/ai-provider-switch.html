@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>ai-provider-switch</title>
+<meta name="spec-status" content="open" />
+<meta name="spec-touches" content="editor/claude_client.py, editor/config.py, editor/settings.py, editor/indexing.py, editor/blueprints/jobs.py, editor/static/things.js, editor/requirements.txt" />
+<meta name="spec-account" content="yes" />
+<meta name="spec-blocker" content="Needs a Moonshot API key. The owner must create an account at platform.kimi.ai and issue a key into editor/.env as MOONSHOT_API_KEY before the Kimi path can be verified against the real API. Everything up to that point (abstraction, setting, UI, mocked tests) is buildable without it." />
+<meta name="spec-decision" content="Kimi model: use kimi-k3 (1M context, vision, strict JSON-schema structured outputs). Recommended default. Non-blocking — kimi-k2.6 is the cheaper 256K fallback if k3 pricing disappoints." />
+<meta name="spec-decision" content="Batch deep-index: Moonshot documents no Batch API equivalent, so the 50%-price batch path is Claude-only. Recommend silently routing the batch job to the synchronous deep-index loop when the provider is Kimi, with the job label saying so. Non-blocking." />
+<meta name="spec-decision" content="Module name: claude_client.py becomes a misnomer once it serves two providers. Recommend renaming to ai_client.py (only 6 importers) in a dedicated checkpoint commit. Non-blocking — keeping the old name costs nothing but clarity." />
+<meta name="spec-decision" content="HTTP client: use the official openai SDK pointed at Moonshot's base URL (Kimi is OpenAI-wire-compatible) rather than hand-rolling httpx calls. Adds one dependency. Recommended; non-blocking." />
+<meta name="spec-decision" content="Setting scope: one global provider toggle for all model calls, mirroring the existing on-device-vision toggle. Recommended over per-feature provider selection, which can come later if quality diverges by task. Non-blocking." />
+<meta name="spec-verify" content="cd editor &amp;&amp; ./venv/bin/python -m pytest tests/test_ai_provider.py -q" />
+  <link rel="stylesheet" href="spec.css" />
+  <style>body{font-family:-apple-system,Segoe UI,sans-serif;max-width:860px;margin:2rem auto;padding:0 1.2rem;background:#1c1c1e;color:#e8e8ea;line-height:1.55}
+  h1{font-size:1.5rem;border-bottom:1px solid #3a3a3c;padding-bottom:.4rem}
+  h2{font-size:1.15rem;margin-top:1.8rem;color:#9fd0a8}
+  h3{font-size:1rem;margin-top:1.2rem;color:#c9c9cd}
+  code{background:#2c2c2e;padding:.1em .35em;border-radius:4px;font-size:.9em}
+  pre{background:#2c2c2e;padding:.8rem;border-radius:8px;overflow-x:auto}
+  pre code{background:none;padding:0}
+  table{border-collapse:collapse;margin:1rem 0;width:100%}
+  th,td{border:1px solid #3a3a3c;padding:.35rem .6rem;text-align:left;vertical-align:top}
+  th{background:#2c2c2e}
+  .lede{color:#b9b9be;font-size:1.05rem}
+  del{color:#7a7a7e}
+  .warn{border-left:3px solid #d08a5a;padding-left:.8rem;color:#e0c0a0}
+  </style>
+</head>
+<body>
+
+<h1>Spec: Swap the AI provider — Claude ⇄ Kimi, as a setting</h1>
+
+<p class="lede">Make the model provider a runtime setting instead of a hard-wired dependency: route every
+model call through one dispatcher so the library can run on Moonshot's Kimi (OpenAI-wire-compatible,
+far cheaper) or Anthropic's Claude, chosen from the Things panel like the existing on-device toggle.</p>
+
+<p><strong>Owns:</strong> <code>editor/claude_client.py</code> (the dispatcher), <code>editor/config.py</code>
++ <code>editor/settings.py</code> (the setting), <code>editor/indexing.py</code> (the batch fallback),
+<code>editor/blueprints/jobs.py</code> (<code>/api/settings</code>), <code>editor/static/things.js</code> (the
+picker), <code>editor/requirements.txt</code>.</p>
+
+<p><strong>Parallel:</strong> touches the AI seam only. Safe alongside frontend and data specs. Do <em>not</em>
+run alongside another spec that edits <code>claude_client.py</code> or <code>indexing.py</code>'s deep-index jobs.</p>
+
+<h2>Why</h2>
+
+<p>Every model call in the app currently goes to Anthropic, and the expensive ones — the deep-index pass
+over sampled frames, rough-cut generation, edit chat — run on an Opus-tier model. Kimi K3 is
+OpenAI-wire-compatible, carries a 1M-token context, and supports the three things this app actually
+needs from a model: <strong>vision</strong>, <strong>strict JSON-schema structured output</strong>, and prompt caching —
+at a substantially lower per-token cost. Making the provider a setting means the library can be
+re-indexed cheaply without giving up the option to run a specific job on Claude.</p>
+
+<p>This is orthogonal to the existing <em>on-device vision</em> toggle. That one decides
+<em>local CLIP vs. a cloud model</em>; this one decides <em>which cloud model</em>. Both settings coexist:
+on-device stays free and offline, and the provider setting only applies when a call actually leaves the machine.</p>
+
+<h2>What the migration is actually up against</h2>
+
+<p>The 2026-07 efficiency pass already did the hard part. Eleven of the twelve model calls now funnel through
+a single helper, <code>_parse(messages, schema, max_tokens, *, system, thinking, model)</code>, so the provider
+split has <em>one</em> natural seam rather than twelve. What remains is four concrete incompatibilities.</p>
+
+<table>
+<thead><tr><th>Anthropic feature in use</th><th>Where</th><th>Kimi equivalent</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>messages.parse(output_format=Model)</code> → <code>.parsed_output</code></td>
+  <td><code>_parse()</code>, 11 call sites</td>
+  <td><code>response_format={"type":"json_schema", ...}</code> with <code>strict</code>, then
+      <code>Model.model_validate(json.loads(content))</code></td>
+</tr>
+<tr>
+  <td>Image blocks: <code>{"type":"image","source":{"type":"base64","media_type":…,"data":…}}</code></td>
+  <td><code>_deep_index_content</code>, <code>propose_crop</code>, <code>pick_best_frame</code>, <code>analyze_frame</code></td>
+  <td><code>{"type":"image_url","image_url":{"url":"data:&lt;media_type&gt;;base64,&lt;data&gt;"}}</code></td>
+</tr>
+<tr>
+  <td>Top-level <code>system=</code> parameter</td>
+  <td><code>campaign_chat</code></td>
+  <td>A leading <code>{"role":"system"}</code> message</td>
+</tr>
+<tr>
+  <td><code>thinking={"type":"adaptive"}</code></td>
+  <td>revise / rough-cut / match / suggest</td>
+  <td>No equivalent parameter — drop it; K3 does its own reasoning</td>
+</tr>
+<tr>
+  <td><strong>Message Batches API</strong> (50% price)</td>
+  <td><code>deep_index_batch_request()</code> + 3 <code>messages.batches.*</code> calls in <code>indexing.py</code></td>
+  <td class="warn">None documented. See <em>The batch problem</em> below.</td>
+</tr>
+</tbody>
+</table>
+
+<h2>Design</h2>
+
+<h3>1. The setting</h3>
+
+<p>Mirror the existing on-device toggle exactly — env default, DB override, one accessor.</p>
+
+<pre><code># config.py
+AI_PROVIDER_DEFAULT = os.environ.get("AI_PROVIDER", "claude")   # "claude" | "kimi"
+MOONSHOT_API_KEY    = os.environ.get("MOONSHOT_API_KEY", "").strip()
+MOONSHOT_BASE_URL   = os.environ.get("MOONSHOT_BASE_URL", "https://api.moonshot.ai/v1")
+KIMI_MODEL          = os.environ.get("KIMI_MODEL", "kimi-k3")
+
+# settings.py — alongside _use_on_device()
+def _ai_provider() -> str:
+    """Live provider setting: the stored choice, or the env default if unset."""
+    return _get_setting("ai_provider") or AI_PROVIDER_DEFAULT
+</code></pre>
+
+<p><code>/api/settings</code> (GET and POST, already in <code>blueprints/jobs.py</code>) gains an
+<code>ai_provider</code> key. Reject anything that isn't <code>claude</code> or <code>kimi</code> with
+<code>err(…, 400)</code>, and reject <code>kimi</code> when <code>MOONSHOT_API_KEY</code> is empty — a
+pre-flight check, per the fail-loudly rule, rather than letting the first indexing job die at 3am.</p>
+
+<h3>2. The dispatcher</h3>
+
+<p><code>_parse()</code> becomes the fork. Nothing above it changes — the eleven callers keep passing
+Anthropic-shaped messages and a pydantic schema, and keep receiving a validated model instance.</p>
+
+<pre><code>def _parse(messages, schema, max_tokens, *, system=None, thinking=None, model=None):
+    if _ai_provider() == "kimi":
+        return _parse_kimi(messages, schema, max_tokens, system=system)
+    return _parse_claude(messages, schema, max_tokens,
+                         system=system, thinking=thinking, model=model or MODEL)
+</code></pre>
+
+<p><code>_parse_kimi()</code> does three mechanical things: translate the message list (images to
+<code>image_url</code> data URIs, <code>system</code> to a leading message), send
+<code>response_format={"type":"json_schema","json_schema":{"name":schema.__name__,
+"schema":schema.model_json_schema(),"strict":True}}</code>, and validate the returned JSON with
+<code>schema.model_validate()</code>. Keep the translation in one small pure function
+(<code>_to_openai_messages(messages, system)</code>) so it can be unit-tested without a network call.</p>
+
+<p class="warn"><strong>Pydantic schemas need a compatibility pass.</strong> Strict JSON-schema modes
+typically require <code>additionalProperties: false</code> and every property listed in
+<code>required</code>. Several models here use defaulted fields (<code>things: List[str] = []</code>,
+<code>regions: List[Region] = []</code>). Add a <code>_strict_schema(schema)</code> post-processor that walks
+<code>model_json_schema()</code> and normalizes it, rather than editing the pydantic classes and changing
+Claude's behavior too.</p>
+
+<h3>3. The batch problem</h3>
+
+<p>The deep-index batch job is the one place with no clean Kimi analogue. It exists purely to halve the
+cost of bulk re-indexing — which is much of the reason to switch providers in the first place, so losing
+it matters less than it would otherwise.</p>
+
+<p><strong>Recommended:</strong> when the provider is Kimi, <code>_run_deep_index_batch_job</code> delegates
+to the existing synchronous <code>_run_deep_index_job</code> and labels the job
+<em>"Deep indexing (Kimi, sequential)"</em> so the UI never claims a discount it isn't getting. No new
+polling machinery, no silent failure. <code>parse_deep_index_json()</code> is already a tolerant,
+provider-neutral parser and gets reused as-is.</p>
+
+<h3>4. The picker</h3>
+
+<p>The Things panel already renders the on-device toggle and its status line
+(<code>#on-device-toggle</code>, <code>#analysis-mode-status</code> in <code>things.js</code>). Add a small
+provider <code>&lt;select&gt;</code> beside it, wired through the shared <code>api()</code> helper, with a
+status line naming the active model — e.g. <em>"Kimi K3 · cheaper, 1M context"</em> vs.
+<em>"Claude Opus · batch discount available"</em>. It should read as one coherent "how analysis runs"
+control group, not two unrelated switches.</p>
+
+<h2>Build order</h2>
+
+<ol>
+  <li><strong>Setting plumbing</strong> — <code>config</code> + <code>settings._ai_provider()</code> +
+      <code>/api/settings</code> validation. No behavior change yet; provider stays <code>claude</code>.</li>
+  <li><strong>Message translation</strong> — <code>_to_openai_messages()</code> and
+      <code>_strict_schema()</code> as pure functions, with unit tests over the four vision call shapes.
+      Still no network.</li>
+  <li><strong>The Kimi path</strong> — <code>_parse_kimi()</code> + the <code>_parse()</code> fork.
+      Behind the setting, so <code>claude</code> is untouched.</li>
+  <li><strong>Batch fallback</strong> in <code>indexing.py</code>.</li>
+  <li><strong>UI picker</strong> in <code>things.js</code>.</li>
+  <li><strong>Live A/B</strong> — requires the API key (see blocker).</li>
+</ol>
+
+<p>Steps 1–5 are fully buildable and testable today; only step 6 waits on the account.</p>
+
+<h2>Verification</h2>
+
+<ul>
+  <li><strong>Unit</strong> — new <code>tests/test_ai_provider.py</code>: the setting round-trips and rejects
+      junk; <code>_to_openai_messages()</code> converts each of the four image-carrying call shapes correctly;
+      <code>_strict_schema()</code> emits <code>additionalProperties:false</code> and full
+      <code>required</code>; <code>_parse()</code> dispatches to the right backend per setting (both mocked).</li>
+  <li><strong>Regression</strong> — the whole existing suite must stay green with the provider unset.
+      The conftest AI mocks patch at the <code>claude_client.generate_rough_cut</code> level, so they are
+      already provider-agnostic and should need no changes. If they do, that is a signal the abstraction
+      leaked.</li>
+  <li><strong>Live A/B</strong> (needs the key) — deep-index the same 5 clips under each provider and
+      compare scene-segment counts, region counts, and whether watched things are still matched. Then run
+      the real loop end to end on Kimi: assemble → chat revision → export. Record the observed cost delta
+      in the ROADMAP line so the switch is justified by a number, not a vibe.</li>
+</ul>
+
+<h2>Risks</h2>
+
+<table>
+<thead><tr><th>Risk</th><th>Mitigation</th></tr></thead>
+<tbody>
+<tr><td>Quality regression on deep-index or rough-cut, silently degrading the library</td>
+    <td>The A/B above, on real clips, before flipping the default. The setting makes reverting instant.</td></tr>
+<tr><td>Strict-schema rejection on the defaulted-list models</td>
+    <td><code>_strict_schema()</code> normalization + unit tests over every schema in the module.</td></tr>
+<tr><td>Losing the batch discount erases the savings on a bulk re-index</td>
+    <td>Measure it in the A/B. Kimi sequential may still beat Claude batch; if not, keep bulk re-indexes on Claude.</td></tr>
+<tr><td>Two providers drift as prompts get tuned for one</td>
+    <td>Prompts stay shared and provider-neutral. If a prompt needs per-provider tuning, that is the signal to revisit the single-toggle decision.</td></tr>
+</tbody>
+</table>
+
+<h2>Explicitly not in scope</h2>
+
+<ul>
+  <li>Per-feature provider selection (deep-index on Kimi, chat on Claude). Possible later; see the decision note.</li>
+  <li>Streaming responses — nothing in this app streams model output today.</li>
+  <li>Replacing the on-device CLIP/Whisper path. Unrelated and still the cheapest option.</li>
+  <li>A third provider. The dispatcher should not grow a plugin registry for a case that does not exist.</li>
+</ul>
+
+<h2>Acceptance</h2>
+
+<p>Flipping the Things-panel picker to Kimi and re-running the core loop — import → deep-index →
+assemble → chat revision → export — produces a working cut with no Anthropic API call made, and flipping
+back to Claude restores the previous behavior exactly. <code>./run_tests.sh</code> green in both states.</p>
+
+</body>
+</html>
