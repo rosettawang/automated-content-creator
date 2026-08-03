@@ -6,7 +6,7 @@
 <meta name="spec-status" content="open">
 <meta name="spec-account" content="yes">
 <meta name="spec-touches" content="editor/social/instagram.py editor/composio_wrapper.py">
-<meta name="spec-blocker" content="Code side ready (resolver, tests, dry-run payload). Account step: see Login-gated queue #1 — the owner arms the campaign, sets SOCIAL_DRY_RUN=0, and presses publish (public, irreversible). Composio API key verified live 2026-07-26.">
+<meta name="spec-blocker" content="Code side fully de-risked (2026-08-03 login pass): IG_USER_ID resolves (36688555857459155), tests pass (112), dry-run payload verified. NOTE: the connected account is @laurelate, NOT @whrfund — the owner must confirm which account the first post targets (spec-decision still says @whrfund). Then the owner arms the campaign, sets SOCIAL_DRY_RUN=0, and presses publish (public, irreversible). Composio API key + connection verified live.">
 <meta name="spec-decision" content="First real Instagram post: fire on @whrfund directly with one owner-approved low-stakes photo (hero still + caption you approve; human presses publish)? Recommended: yes. BLOCKS go-live until answered — the whole bottleneck chain (platform-links published state, MCP posting tools, real analytics) sits behind it.">
 <style>
   body { font: 16px/1.6 -apple-system, system-ui, sans-serif; max-width: 820px;
@@ -42,7 +42,7 @@
 <h2>Prerequisites (already true as of 2026-07-24)</h2>
 <ul>
   <li>Composio account connected: Instagram <strong>Active</strong> under user id <code>rosettawang</code> (matches <code>DEFAULT_USER_ID</code>), account ref <code>ca_xGBSFmzcbfyu</code>, auth config <code>ac_DFndPMJkegLK</code>.</li>
-  <li>The account is <strong>@whrfund</strong>, a Business/Creator account (personal accounts can't publish via API).</li>
+  <li>The connected account (live 2026-08-03) is <strong>@laurelate</strong> — ig_user_id <code>36688555857459155</code>, a Business/Creator account (personal accounts can't publish via API). <em>The spec-decision below still names @whrfund; that account is not currently connected. Owner: confirm the target before publishing.</em></li>
   <li><code>COMPOSIO_API_KEY</code> and <code>ANTHROPIC_API_KEY</code> in <code>editor/.env</code>.</li>
   <li>Adapter already corrected: verified two-step slugs, local-file upload via <code>image_file</code>, real connection check, and <code>_resolve_ig_user_id()</code> (no hand-copied id).</li>
 </ul>
