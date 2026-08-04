@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>mcp-server</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+  </style>
+  <link rel="stylesheet" href="" />
+  <style>body{font-family:-apple-system,Segoe UI,sans-serif;max-width:860px;margin:2rem auto;padding:0 1.2rem;background:#1c1c1e;color:#e8e8ea;line-height:1.55}
+  h1{font-size:1.5rem;border-bottom:1px solid #3a3a3c;padding-bottom:.4rem}
+  h2{font-size:1.15rem;margin-top:1.8rem;color:#9fd0a8}
+  code{background:#2c2c2e;padding:.1em .35em;border-radius:4px;font-size:.9em}
+  pre{background:#2c2c2e;padding:.8rem;border-radius:8px;overflow-x:auto}
+  pre code{background:none;padding:0}
+  table{border-collapse:collapse;margin:1rem 0}th,td{border:1px solid #3a3a3c;padding:.35rem .6rem;text-align:left}
+  blockquote{border-left:3px solid #5a8a64;margin-left:0;padding-left:1rem;color:#b8b8bc}
+  del{color:#7a7a7e}
+  a{color:#8ab4f8}
+  strong{color:#fff}</style>
+</head>
+<body>
+<h1 id="spec--mcp-server-claude--the-app">Spec — MCP server (Claude ↔︎ the app)</h1>
+<p><em>Lets Claude (Claude Code / Claude Desktop, later claude.ai) drive the content creator: import footage, search the library, assemble edits — from a chat, in the user's own words. Core shipped 2026-07-17; this spec covers the design of record plus the unbuilt roadmap. Per <code>CLAUDE.md</code>, delete this file when the roadmap below is done; strike the ROADMAP line as each phase ships.</em></p>
+<h2 id="principle-thin-proxy-one-source-of-truth">Principle: thin proxy, one source of truth</h2>
+<p>The MCP server (<code>editor/mcp_server.py</code>) is a <strong>thin proxy over the running Flask app</strong> — every tool calls the same HTTP endpoints the desktop UI uses. It holds no business logic and never touches the DB directly.</p>
+<pre><code>Claude (chat) ──stdio──▶ mcp_server.py ──HTTP──▶ Flask app ──▶ editor.db
+                                                     ▲
+                                       desktop UI ───┘ (same backend)
+</code></pre>
+<p>Why this shape, and not an MCP that imports the app's modules or hits SQLite:</p>
+<ul>
+<li><strong>No drift.</strong> The UI and Claude exercise identical code paths; a fix in a route fixes both. There is exactly one place business logic lives.</li>
+<li><strong>Propagation is free.</strong> A write from Claude lands in the shared <code>editor.db</code>; the desktop editor's live-refresh poll surfaces it with no reload (see app.js <code>pollForNewEdits</code>). "Ask here → watch it appear there" needs no cross-process messaging.</li>
+<li><strong>Cost:</strong> the app must be running. Mitigated by auto-start (below).</li>
+</ul>
+<p>Non-negotiables for any new tool: it MUST go through an existing HTTP endpoint. If no endpoint fits, add the endpoint (thin route + logic in the owning module) first, then have the tool call it. Never reach into <code>db.py</code>/<code>core.py</code> from the MCP.</p>
+<h2 id="shipped-2026-07-17">Shipped (2026-07-17)</h2>
+<ul>
+<li><strong>Transport &amp; entry point.</strong> stdio via FastMCP; <code>content-creator-mcp</code> console script (editable install resolves back to the repo so auto-start finds <code>app.py</code>).</li>
+<li><strong>Config.</strong> <code>EDITOR_URL</code> (default <code>http://127.0.0.1:5001</code>), <code>MCP_AUTOSTART</code> (default on) — starts the app headless as a detached child and waits for <code>/api/env</code> health, but only when <code>EDITOR_URL</code> is localhost.</li>
+<li><strong>App-down path.</strong> Tools raise a clear "launch the app" message, never a stack trace.</li>
+<li><strong>Tools (all proxy existing endpoints):</strong>
+<ul>
+<li><code>import_media(paths?, drive_links?, photos_links?)</code> → <code>/api/import-files</code> (multipart; handles zips) + <code>/api/drive-import</code> + <code>/api/photos-import</code>; polls the async import job to completion.</li>
+<li><code>search_clips(query)</code> → <code>/api/clips?q=</code> (subset of fields incl. <code>index_status</code>).</li>
+<li><code>redownload_clip(clip_id)</code> → <code>/api/clips/&lt;id&gt;/pull</code>; re-fetches a "not local" clip from its recorded source and polls the job (idempotent).</li>
+<li><code>assemble_cut(prompt, clip_ids?, campaign_id?, name?)</code> → <code>/api/generate-edit</code>; returns the new edit id, its campaign, concept, and selections.</li>
+</ul></li>
+<li><strong>Registration.</strong> Project-scoped <code>.mcp.json</code> at repo root with <strong>relative</strong> paths (portable across clones/usernames); README documents the clone → <code>pip install -e</code> → <code>.env</code> → register flow, incl. the Claude Desktop absolute-path variant.</li>
+</ul>
+<h2 id="currency--known-gaps-2026-07-17-audit">Currency &amp; known gaps (2026-07-17 audit)</h2>
+<p>Because the MCP is a thin proxy, backend features split into "inherited free" vs "needs a tool" — worth tracking so gaps are deliberate, not rediscovered.</p>
+<ul>
+<li><strong>Inherited free (no MCP change):</strong> aspect-from-prompt + subject-tracking framing now flow through <code>assemble_cut</code> (it calls <code>/api/generate-edit</code>); its docstring was updated 2026-07-17 to say so. Same story for core-split, migrations, and the shared error handler — internal changes the proxy is immune to. <em>Watch:</em> new capabilities can land silently under an existing tool, so tool docstrings drift toward understating what they do — re-read them when the underlying endpoint gains behavior.</li>
+<li><strong>Shipped but intentionally NOT exposed:</strong> the whole publishing/campaign surface (<code>/api/campaigns/&lt;id&gt;/posts</code>, <code>/posts/&lt;id&gt;</code>, <code>publish-now</code>, <code>cancel</code>, <code>metrics/refresh</code>, <code>summary</code>, <code>arm</code>) — deferred to roadmap A because real posting is irreversible and must keep the <code>SOCIAL_DRY_RUN</code> + arm gating. Do not add a publish tool before social-adapters C is live-verified.</li>
+<li><del><strong>Small safe gap:</strong> <code>POST /api/clips/&lt;id&gt;/pull</code> has no tool.</del> ✅ Shipped 2026-07-17 — <code>redownload_clip(clip_id)</code> proxies the pull endpoint, handles the already-local short-circuit, and polls the re-download job to completion. Idempotent, no external side effects.</li>
+<li><strong>Contract drift to watch:</strong> the <code>project_id</code>→<code>campaign_id</code> rename is now reconciled end to end — the MCP sends <code>campaign_id</code>, <code>/api/generate-edit</code> reads <code>campaign_id</code>, and tools return <code>edit_id</code>/<code>campaign_id</code> (verified 2026-07-17). The remaining risk is the pending <strong>edits→cuts</strong> rename: these return keys and the edit/campaign vocabulary are inside its blast radius, so if that lands the MCP tool contracts change with it.</li>
+</ul>
+<h2 id="terminology-matches-the-app">Terminology (matches the app)</h2>
+<p><strong>Campaign</strong> (theme, e.g. "Holiday campaign") groups <strong>edits</strong>; an <strong>edit</strong> is one assembled cut; clips are the footage. The wire param and return key are both <code>campaign_id</code> (the older <code>project_id</code> name is fully retired from the MCP surface and <code>/api/generate-edit</code>). Note the DB table is still <code>projects</code> — a future edits→cuts / projects→campaigns schema rename would ripple here.</p>
+<h2 id="unbuilt-roadmap">Unbuilt roadmap</h2>
+<p>Ship each phase before starting the next; delete this file when all are done.</p>
+<h3 id="a--multi-account-posting-depends-on-social-adapters-c">A — Multi-account posting (depends on social-adapters C)</h3>
+<p>Today Composio is hardcoded to one <code>user_id</code> (<code>DEFAULT_USER_ID</code>) and <code>execute_action</code> doesn't select among connected accounts, so it's effectively single-account. Design of record: <strong>bind one Instagram account per campaign.</strong></p>
+<ul>
+<li>Persist connected accounts (small table or <code>connected_accounts.list</code>), each with the Composio <code>connected_account_id</code> and a friendly handle.</li>
+<li>Attach an account to a campaign; posting a cut auto-targets that campaign's account (fall back to an explicit picker when unbound).</li>
+<li><code>execute_action(..., connected_account_id=…)</code> so the target is never ambiguous.</li>
+<li>MCP surface: <code>list_accounts</code>, <code>publish_edit(edit_id, account?/campaign-derived)</code> — but only once social-adapters C is live-verified (real posting is irreversible; keep <code>SOCIAL_DRY_RUN</code> gating).</li>
+</ul>
+<p><strong>Decision D5, answered by the owner 2026-07-27: Claude SHOULD be able to post via MCP</strong> — a full <code>publish_edit</code> tool, not schedule-only. The existing rails are the permission model and are not weakened by this: the tool refuses unless the target campaign is already <strong>armed</strong> (arming stays a UI act by the owner, per campaign) and <code>SOCIAL_DRY_RUN</code> is off; it publishes exactly one post per call, never auto-retries (check <code>external_id</code> first), and surfaces failures on the post. A <code>schedule_post</code> tool (queue a draft/scheduled post) is unrestricted by arming since scheduling is reversible — cancel exists. Build order unchanged: nothing ships before social-adapters C is live-verified.</p>
+<h3 id="b--more-tools-as-endpoints-stabilize"><del>B — More tools (as endpoints stabilize)</del> ✅ Shipped 2026-07-28</h3>
+<p>All shipped as thin proxies (verified live): <code>list_campaigns</code>, <code>create_campaign(name, description?)</code>, <code>list_edits(campaign_id?)</code>, <code>get_edit(edit_id)</code> (full detail + timeline items), <code>revise_edit(edit_id, instruction)</code> (edit-chat, snapshots for undo), <code>export_edit(edit_id)</code> (renders to <code>clips_out/</code>, polls the job), <code>suggest_content</code>. Server now exposes 11 tools total. Endpoints reconciled to the post-refactor names (<code>/api/campaigns</code>, <code>/api/edits?campaign=</code>, <code>/api/edits/&lt;id&gt;/chat</code>, <code>/api/edits/&lt;id&gt;/export</code>).</p>
+<h3 id="c--distribution-packaging--pypi">C — Distribution (packaging → PyPI)</h3>
+<p><code>pyproject.toml</code> already makes <code>pip install -e .</code> work. To enable clone-free install (<code>uvx content-creator-mcp</code>): publish to PyPI. Note the auto-start assumes <code>app.py</code> is a sibling of the installed module — verify this holds (or degrade gracefully to "start the app yourself") for a non-editable install.</p>
+<h3 id="d--remote-mcp-only-if-sharing-one-hosted-library">D — Remote MCP (only if sharing one hosted library)</h3>
+<p>The local proxy serves the "each user runs their own instance" model. Sharing one library with others means a hosted server behind a URL with auth (the claude.ai "add by link" model): deploy the app + MCP, add OAuth/token auth, scope access. Larger lift — hosting, auth, exposing footage. Not planned unless a hosted, multi-user product is wanted.</p>
+<h2 id="testing">Testing</h2>
+<p>The MCP is a proxy, so the Priority-1 endpoint suite already covers the logic each tool exercises. Add MCP-level coverage only for proxy-specific behavior: app-down message, import-job polling/timeout, and the <code>campaign_id</code> mapping. Never let an MCP test hit a real Composio account or post for real.</p>
+</body>
+</html>

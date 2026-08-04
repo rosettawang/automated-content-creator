@@ -17,7 +17,7 @@ import json
 import logging
 
 from composio_wrapper import execute_action, list_toolkit_actions
-from social.base import register
+from social.base import register, PublishResult
 
 log = logging.getLogger("editor.social.tiktok")
 
@@ -80,7 +80,10 @@ class TikTokAdapter:
         external_id = data.get("id") or data.get("publish_id") or data.get("video_id")
         if not external_id:
             raise RuntimeError(f"TikTok publish returned no post id: {json.dumps(result)[:300]}")
-        return str(external_id)
+        # TikTok's publish response rarely includes a share URL; surface it when present,
+        # else None so the UI uses the 'open profile' fallback rather than a guessed URL.
+        permalink = data.get("share_url") or data.get("permalink") or data.get("url")
+        return PublishResult(str(external_id), permalink)
 
     def fetch_metrics(self, post: dict) -> dict:
         if not post.get("external_id"):

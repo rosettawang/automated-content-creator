@@ -229,7 +229,7 @@ def test_generate_snaps_cuts_to_reference_beats(client, make_clip, conn, monkeyp
 
 # ---- music bed (Phase 2) ----
 import config as _config
-from export import _music_bed_filter
+from export import _music_bed_filter, _voiceover_mix_filter
 
 
 def _make_music_dir(tmp_path, monkeypatch):
@@ -276,3 +276,11 @@ def test_generate_music_mode_sets_track(client, make_clip, tmp_path, monkeypatch
 def test_music_bed_filter_fades():
     f = _music_bed_filter(15.0)
     assert "afade=t=in" in f and "afade=t=out:st=13.000" in f  # fade out 2s before end
+
+
+def test_voiceover_mix_does_not_normalize():
+    """amix normalizes by default, which halves the VO (-6dB) and over-ducks the
+    ambient — the narration then lands quieter than a plain ambient render."""
+    f = _voiceover_mix_filter()
+    assert "normalize=0" in f
+    assert "volume=0.18" in f  # ambient duck stays as documented, not 0.18/inputs
