@@ -50,6 +50,22 @@
       Left open with its existing accurate blocker; delete it when social-adapters ships.</td>
 </tr>
 <tr>
+  <td>social-adapters</td>
+  <td>blocked (chained) — no code work left</td>
+  <td>Ran the adapter/publishing tests: <code>pytest tests/test_social_tiktok.py
+      tests/test_social_instagram.py tests/test_publishing.py -q</code> → 23 passed.
+      Then checked the live registry rather than trusting the spec: with
+      <code>load_adapters()</code>, <code>real_adapter()</code> returns
+      <strong>InstagramAdapter</strong> and <strong>TikTokAdapter</strong>, but
+      <code>get_adapter()</code> returns <strong>DryRunAdapter</strong> for both while
+      <code>dry_run_enabled()</code> is True — so nothing can post for real.</td>
+  <td>Its decision ("which platform earns the second adapter?") is already answered in
+      code — the TikTok adapter exists and uses the <em>direct-upload</em> path, which is
+      the right call since a local app has no public URL for PULL_FROM_URL — so I removed
+      it from the owner's queue. Nothing else is buildable: Phase C's acceptance is a real
+      post on a real account, i.e. instagram-go-live's owner-gated blocker.</td>
+</tr>
+<tr>
   <td>ai-provider-switch</td>
   <td>built everything key-free → still open on the live Kimi check</td>
   <td>The spec's own <code>spec-verify</code> now passes:

@@ -33,7 +33,7 @@
     <a href="social-adapters.html">social-adapters</a>
     <span class="tag tag-blocked">blocked</span>
     <p></p>
-    <p class="blocker"><strong>Blocked:</strong> Instagram adapter built + dry-run gated; Phase C acceptance is live go-live verification, which is the instagram-go-live spec. Blocked on that. Shares editor/social/instagram.py with it — sequence, do not parallelize.</p>
+    <p class="blocker"><strong>Blocked:</strong> Only live verification remains — no code work left. Both adapters are built and registered: Instagram plus TikTok via the direct-upload path (no public URL needed, so it works from a local app), 23 dry-run tests green. Confirmed 2026-08-03 that get_adapter() returns DryRunAdapter for both while SOCIAL_DRY_RUN is on, so nothing can post for real. Phase C acceptance is a real post on a real account, which is instagram-go-live's owner-gated blocker (arm + SOCIAL_DRY_RUN=0 + press publish). Shares editor/social/instagram.py with it — sequence, do not parallelize.</p>
   </li>
   <li>
     <a href="ai-provider-switch.html">ai-provider-switch</a>
@@ -57,7 +57,7 @@
     <a href="social-publishing.html">social-publishing</a>
     <span class="tag tag-open">open</span>
     <p></p>
-    <p class="blocker"><strong>Remaining:</strong> Umbrella map, not a build. Core + analytics shipped; only social-adapters Phase C remains open. Delete this file when all three sub-specs have shipped.</p>
+    <p class="blocker"><strong>Remaining:</strong> Umbrella map, not a build — owns NO source files, so the planner's &amp;quot;no spec-touches&amp;quot; note is expected, not a gap. social-core and social-analytics shipped 2026-07-17; the only open child is social-adapters, itself blocked on instagram-go-live. Delete this file when social-adapters ships.</p>
   </li>
 </ul>
 
@@ -69,8 +69,8 @@
   <li><a href="mcp-server.html">mcp-server</a> — mcp-server</li>
   <li><a href="social-publishing.html">social-publishing</a> — social-publishing</li>
   <li><a href="instagram-go-live.html">instagram-go-live</a> — Instagram go-live (via Claude Code)<br /><span class="meta" style="margin:0"><strong>1 decision waiting on the owner</strong> · account-gated, needs a Login-gated queue item · shares <code>editor/social/instagram.py</code></span></li>
+  <li><a href="social-adapters.html">social-adapters</a> — social-adapters<br /><span class="meta" style="margin:0"><strong>blocked</strong> · after instagram-go-live · shares <code>editor/social/instagram.py</code></span></li>
   <li><a href="ai-provider-switch.html">ai-provider-switch</a> — ai-provider-switch<br /><span class="meta" style="margin:0"><strong>1 decision waiting on the owner</strong> · account-gated, needs a Login-gated queue item</span></li>
-  <li><a href="social-adapters.html">social-adapters</a> — social-adapters<br /><span class="meta" style="margin:0"><strong>blocked</strong> · <strong>1 decision waiting on the owner</strong> · after instagram-go-live · shares <code>editor/social/instagram.py</code></span></li>
 </ol>
 <div class="callout warn">
 <h4>Conflicts to resolve first</h4>
@@ -83,14 +83,8 @@
 <h2 id="decisions">Decisions waiting on the owner</h2>
 <p>Choices only the owner can make — answer in any Claude session (in chat, or edit the spec's <code>spec-decision</code> meta). A session records the answer in the owning spec and the next prune drops it from here. It never silently picks a default and buries it in a commit.</p>
 <!-- GENERATED:DECISIONS:START -->
-<p class="meta">3 decisions across 3 specs, generated from each spec's <code>spec-decision</code> meta. Answer one and it disappears from here on the next prune.</p>
+<p class="meta">2 decisions across 2 specs, generated from each spec's <code>spec-decision</code> meta. Answer one and it disappears from here on the next prune.</p>
 <ul class="spec-decision-list">
-  <li>
-    <a href="social-adapters.html">social-adapters</a> <span class="tag tag-blocked">blocked</span>
-    <ul>
-      <li>Which platform earns the second adapter? Recommended: whichever the org actually has an account on (the social-adapters-tiktok branch suggests TikTok — but verify the direct-upload path, since public-URL publish won't work from a local app). Spec rule: no adapter for an account nobody has connected. Does not block.</li>
-    </ul>
-  </li>
   <li>
     <a href="ai-provider-switch.html">ai-provider-switch</a>
     <ul>
