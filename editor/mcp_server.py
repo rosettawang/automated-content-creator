@@ -49,15 +49,31 @@ def _is_up() -> bool:
         return False
 
 
+def _app_entrypoint() -> Path | None:
+    """Path to the app's entrypoint, or None when it isn't alongside this module.
+
+    Auto-start assumes `app.py` sits next to `mcp_server.py`, which holds for a repo
+    clone and for `pip install -e .` (editable installs resolve back to the repo). It
+    does NOT hold for a plain (non-editable) install — the module lands in
+    site-packages with no app beside it — so we must detect that instead of spawning a
+    doomed child and waiting out the health timeout (spec: mcp-server, phase C)."""
+    candidate = HERE / "app.py"
+    return candidate if candidate.is_file() else None
+
+
 def _start_app() -> bool:
     """Launch the Flask app headless as a detached child, then wait for health.
-    Only attempts a local start when EDITOR_URL points at localhost."""
+    Only attempts a local start when EDITOR_URL points at localhost AND the app's
+    entrypoint is actually present next to this module."""
     host = httpx.URL(EDITOR_URL).host
     if host not in ("127.0.0.1", "localhost", "0.0.0.0"):
         return False  # remote app — not ours to start
+    entry = _app_entrypoint()
+    if entry is None:
+        return False  # non-editable install: nothing to start; caller explains how
     try:
         subprocess.Popen(
-            [sys.executable, str(HERE / "app.py")],
+            [sys.executable, str(entry)],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True,  # survive independently of the MCP process
         )
@@ -71,11 +87,22 @@ def _start_app() -> bool:
 
 
 def _require_app() -> None:
-    """Ensure the app is reachable — auto-start it if enabled, else raise."""
+    """Ensure the app is reachable — auto-start it if enabled, else raise a message
+    that says what to actually do (which differs by why the start didn't happen)."""
     if _is_up():
         return
     if AUTOSTART and _start_app():
         return
+    if _app_entrypoint() is None:
+        # Installed without the repo beside it (e.g. from PyPI): we can't start the
+        # app, so say so plainly rather than implying auto-start was tried and failed.
+        raise AppDownError(
+            f"Can't reach the content-creator app at {EDITOR_URL}. This install has no "
+            f"app to start (the package is installed without the repo alongside it), so "
+            f"start it yourself — launch the desktop app, or run `python editor/app.py` "
+            f"from a clone — then try again. Point EDITOR_URL at it if it's not on "
+            f"{EDITOR_URL}."
+        )
     raise AppDownError(
         f"Can't reach the content-creator app at {EDITOR_URL} and couldn't start "
         f"it automatically. Launch the desktop app (or run `python editor/app.py`) "
