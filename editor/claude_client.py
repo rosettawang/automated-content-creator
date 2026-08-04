@@ -367,6 +367,33 @@ def propose_crop(image_bytes: bytes, aspect: str, media_type: str = "image/jpeg"
     return _normalize_crop(out, target_ar)
 
 
+class FrameCheck(BaseModel):
+    in_frame: bool     # is the named subject fully visible in this frame?
+    note: str = ""     # short reason, e.g. "cut off on the right"
+
+
+def check_frame_subject(subject: str, image_bytes: bytes,
+                        media_type: str = "image/jpeg") -> FrameCheck:
+    """Framing v2 Stage 5: ask whether `subject` actually landed fully in frame in an
+    EXPORTED frame. One cheap call per checked segment — callers must gate this behind
+    the (default-off) export_frame_check setting, since it's a recurring per-export cost.
+    Fails open (in_frame=True) so a model/network hiccup never fails an export."""
+    b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+    msg = (
+        f'This is a frame from a finished, reframed video export. Is "{subject}" fully '
+        "visible inside this frame — not cut off at an edge and not missing entirely? "
+        "Answer in_frame=true only if it is fully in shot. If not, say briefly what's "
+        "wrong (e.g. \"cut off on the right\", \"not visible\")."
+    )
+    try:
+        return _parse([{"role": "user", "content": [
+            {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
+            {"type": "text", "text": msg},
+        ]}], FrameCheck, 300)
+    except Exception:
+        return FrameCheck(in_frame=True, note="check unavailable")
+
+
 def _normalize_crop(c: CropSuggestion, target_ar: float) -> CropSuggestion:
     """Force the model's rough rect to exactly the target aspect and clamp it fully
     inside the frame, keeping it centered on the model's chosen center point.

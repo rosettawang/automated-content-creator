@@ -40,6 +40,13 @@ def _use_on_device() -> bool:
     return val == "1"
 
 
+def _use_export_frame_check() -> bool:
+    """Framing v2 Stage 5: verify each exported segment kept its subject in frame.
+    OFF by default — it's a recurring per-export vision cost (~1 call per segment),
+    and framing v2 has been accurate without it. Owner opts in via the settings gear."""
+    return _get_setting("export_frame_check") == "1"
+
+
 def _photos_albums() -> list[str]:
     try:
         return json.loads(_get_setting("photos_albums") or "[]")

@@ -20,6 +20,7 @@ import tts
 from db import get_conn
 from media_files import _source_dims, _has_audio, find_media_file
 from jobs_runtime import _update_job, _run_cancellable, _job_is_cancelled, JobCancelled
+from settings import _use_export_frame_check
 
 log = logging.getLogger("editor.export")
 
@@ -453,6 +454,58 @@ def _prune_segment_cache(keep: int = _SEGMENT_CACHE_MAX) -> None:
         p.unlink(missing_ok=True)
 
 
+def _frame_check_export(output_path: Path, plan) -> list[dict]:
+    """Framing v2 Stage 5: after the render, sample one frame per segment from the
+    FINISHED file and ask whether that segment's primary subject is fully in frame.
+    Returns a list of failures: [{segment, subject, note, at}]. Empty when everything
+    passed, the setting is off, or nothing has a named subject.
+
+    Only called when `_use_export_frame_check()` — it costs ~1 vision call per segment.
+    Fails open: any error yields no failures, so a check can't break a good export."""
+    if not _use_export_frame_check():
+        return []
+    try:
+        from claude_client import check_frame_subject
+    except Exception:
+        return []
+
+    conn = get_conn()
+    failures: list[dict] = []
+    try:
+        t = 0.0
+        for i, item in enumerate(plan):
+            seg_dur = max(0.0, item["out_point"] - item["in_point"])
+            mid = t + seg_dur / 2          # sample mid-segment in the finished timeline
+            t += seg_dur
+            # The subject we framed for: the primary (or largest) named region.
+            row = conn.execute(
+                """SELECT label FROM clip_regions
+                   WHERE clip_id = ? AND label IS NOT NULL AND label <> ''
+                   ORDER BY is_primary DESC, (w * h) DESC LIMIT 1""",
+                (item["clip_id"],),
+            ).fetchone()
+            if not row:
+                continue                    # nothing named to verify
+            subject = row["label"]
+            with tempfile.TemporaryDirectory() as tmp:
+                shot = Path(tmp) / "f.jpg"
+                try:
+                    subprocess.run(
+                        ["ffmpeg", "-y", "-ss", f"{mid:.2f}", "-i", str(output_path),
+                         "-frames:v", "1", str(shot)],
+                        check=True, capture_output=True,
+                    )
+                    res = check_frame_subject(subject, shot.read_bytes())
+                except Exception:
+                    continue                # sampling/model hiccup -> skip this segment
+            if not res.in_frame:
+                failures.append({"segment": i, "subject": subject,
+                                 "note": res.note, "at": round(mid, 2)})
+    finally:
+        conn.close()
+    return failures
+
+
 def _run_export_job(job_id, name, explicit_aspect, dims, plan, audio_mode="ambient",
                     vo_script=None, vo_voice=None, music_path=None, edit_id=None):
     """Render the timeline to a social-normalized MP4 with live progress. `plan` is a
@@ -621,6 +674,18 @@ def _run_export_job(job_id, name, explicit_aspect, dims, plan, audio_mode="ambie
                 result["warning"] = vo_warning
             if music_warning:
                 result["warning"] = music_warning
+            # Stage 5 (opt-in): verify the subject actually landed in frame. Reported
+            # on the job result so the UI can flag which segments need a wider window.
+            if explicit_aspect:
+                _update_job(job_id, phase="checking framing", current="verifying subjects")
+                misframed = _frame_check_export(Path(output_path), plan)
+                if misframed:
+                    result["misframed"] = misframed
+                    result["warning"] = (
+                        f"{len(misframed)} segment(s) may be misframed: "
+                        + "; ".join(f"#{m['segment'] + 1} {m['subject']} ({m['note']})"
+                                    for m in misframed)
+                    )
             # Record the render so a cut card can show an "exported" badge and the
             # desktop shell can offer "Open folder" (spec: platform-links).
             if edit_id is not None:

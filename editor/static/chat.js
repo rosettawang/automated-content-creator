@@ -1,6 +1,32 @@
 // Edit chat: prompt further edits to the current timeline, with undo.
 // Reuses globals from app.js: `api`, `currentEditId`, `loadTimeline`.
 
+// ---- Framing check on export (Stage 5): opt-in, off by default ----
+(function () {
+  const box = document.getElementById("frame-check-toggle");
+  if (!box) return;
+  fetch("/api/settings").then((r) => r.json())
+    .then((s) => { box.checked = !!s.export_frame_check; })
+    .catch(() => { /* leave unchecked */ });
+  box.addEventListener("change", async () => {
+    const want = box.checked;
+    try {
+      const s = await fetch("/api/settings", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ export_frame_check: want }),
+      }).then((r) => r.json());
+      box.checked = !!s.export_frame_check;
+      if (window.showToast) {
+        showToast(box.checked
+          ? "Framing check ON — each export adds ~1 AI call per clip."
+          : "Framing check off.", { type: "info" });
+      }
+    } catch {
+      box.checked = !want;   // revert on failure
+    }
+  });
+})();
+
 // ---- Verify media: re-check files on disk, relink moved ones by content hash ----
 (function () {
   const btn = document.getElementById("verify-media-btn");

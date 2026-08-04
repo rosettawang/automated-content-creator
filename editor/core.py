@@ -142,7 +142,7 @@ from jobs_runtime import (  # explicit: underscore names for clarity/linters
 # in settings (leaf: db + config). Re-exported for `from core import *`.
 from settings import *  # noqa: F401,F403
 from settings import (
-    _get_setting, _set_setting, _use_on_device, _photos_albums,
+    _get_setting, _set_setting, _use_on_device, _use_export_frame_check, _photos_albums,
     _remember_photos_albums, _read_album_urls_from_xlsx,
 )
 

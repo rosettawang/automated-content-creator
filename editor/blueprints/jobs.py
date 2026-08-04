@@ -38,9 +38,14 @@ def import_job(job_id):
     return jsonify(snap)
 
 
+def _settings_payload():
+    return {"on_device_vision": _use_on_device(),
+            "export_frame_check": _use_export_frame_check()}
+
+
 @bp.get("/api/settings")
 def get_settings():
-    return jsonify({"on_device_vision": _use_on_device()})
+    return jsonify(_settings_payload())
 
 
 @bp.post("/api/settings")
@@ -48,7 +53,10 @@ def update_settings():
     data = request.json or {}
     if "on_device_vision" in data:
         _set_setting("on_device_vision", "1" if data["on_device_vision"] else "0")
-    return jsonify({"on_device_vision": _use_on_device()})
+    # Framing v2 Stage 5: opt-in, since each export then costs ~1 vision call/segment.
+    if "export_frame_check" in data:
+        _set_setting("export_frame_check", "1" if data["export_frame_check"] else "0")
+    return jsonify(_settings_payload())
 
 
 @bp.get("/api/env")
