@@ -36,7 +36,35 @@
 </table>
 -->
 
-<p><em>No runs logged yet. The first <code>/spec-run</code> writes here.</em></p>
+<h3>2026-07-26 — run all specs until all blocked</h3>
+<table>
+<tr><th>Spec</th><th>Outcome</th><th>Verified how</th><th>Deviations / left</th></tr>
+<tr>
+  <td>social-publishing</td>
+  <td>not workable (umbrella index)</td>
+  <td>Read the file + checked its claims against the tree: <code>editor/social/</code> has
+      base/scheduler/analytics/instagram/tiktok, <code>blueprints/publishing.py</code>,
+      migration <code>004_social_core.sql</code>, and 3 test files exist — so the two
+      "shipped" children are real.</td>
+  <td>No build to do: it is a map whose only open child is <code>social-adapters</code>.
+      Left open with its existing accurate blocker; delete it when social-adapters ships.</td>
+</tr>
+<tr>
+  <td>framing-and-provenance</td>
+  <td>shipped (Stage 5 built → spec complete)</td>
+  <td><code>./run_tests.sh</code> green (114 tests, incl. new
+      <code>tests/test_frame_check.py</code> proving zero vision calls while disabled).
+      Then exercised the REAL export path in-process twice: gate off → 1080×1920 file
+      rendered, no <code>misframed</code> key, no API calls; gate on → a real export
+      correctly flagged <em>"roasted nuts jar (cut off at the top edge)"</em> with a
+      user-facing warning. Gate restored to off afterwards.</td>
+  <td>Built to the decision's recommendation (default OFF) rather than leaving Stage 5
+      unbuilt — enabling it is now a one-click owner choice with no standing cost.
+      Deviation: skipped the spec's "one-click widen &amp; re-export segment N" retry —
+      misframed segments are reported (segment index, subject, reason) but the fix is
+      manual (drag the crop, re-export). Nothing else left.</td>
+</tr>
+</table>
 
 </div>
 </body>
