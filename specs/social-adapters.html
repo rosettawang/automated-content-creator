@@ -5,6 +5,10 @@
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <title>social-adapters</title>
+<meta name="spec-status" content="blocked" />
+<meta name="spec-needs" content="instagram-go-live" />
+<meta name="spec-touches" content="editor/social/instagram.py editor/social/base.py" />
+<meta name="spec-blocker" content="Only live verification remains — no code work left. Both adapters are built and registered: Instagram plus TikTok via the direct-upload path (no public URL needed, so it works from a local app), 23 dry-run tests green. Confirmed 2026-08-03 that get_adapter() returns DryRunAdapter for both while SOCIAL_DRY_RUN is on, so nothing can post for real. Phase C acceptance is a real post on a real account, which is instagram-go-live's owner-gated blocker (arm + SOCIAL_DRY_RUN=0 + press publish). Shares editor/social/instagram.py with it — sequence, do not parallelize." />
   <style>
     code{white-space: pre-wrap;}
     span.smallcaps{font-variant: small-caps;}

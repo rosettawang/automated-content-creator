@@ -4,6 +4,8 @@ openpyxl
 pywebview
 openai-whisper
 anthropic
+# Kimi/Moonshot is OpenAI-wire-compatible (spec: ai-provider-switch, decision D4)
+openai
 pydantic
 gdown
 requests

@@ -5,6 +5,9 @@
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <title>mcp-server</title>
+<meta name="spec-status" content="open" />
+<meta name="spec-touches" content="editor/mcp_server.py" />
+<meta name="spec-blocker" content="Phases A and C-publish only. A (multi-account posting + publish_edit/schedule_post tools) waits on social-adapters Phase C being live-verified on a real account — real posting is irreversible. C's engineering half shipped 2026-08-03 (auto-start degrades gracefully); publishing to PyPI needs the owner's PyPI account + token. D (remote/hosted MCP) is explicitly not planned unless a multi-user product is wanted." />
   <style>
     code{white-space: pre-wrap;}
     span.smallcaps{font-variant: small-caps;}
@@ -80,7 +83,8 @@
 <h3 id="b--more-tools-as-endpoints-stabilize"><del>B — More tools (as endpoints stabilize)</del> ✅ Shipped 2026-07-28</h3>
 <p>All shipped as thin proxies (verified live): <code>list_campaigns</code>, <code>create_campaign(name, description?)</code>, <code>list_edits(campaign_id?)</code>, <code>get_edit(edit_id)</code> (full detail + timeline items), <code>revise_edit(edit_id, instruction)</code> (edit-chat, snapshots for undo), <code>export_edit(edit_id)</code> (renders to <code>clips_out/</code>, polls the job), <code>suggest_content</code>. Server now exposes 11 tools total. Endpoints reconciled to the post-refactor names (<code>/api/campaigns</code>, <code>/api/edits?campaign=</code>, <code>/api/edits/&lt;id&gt;/chat</code>, <code>/api/edits/&lt;id&gt;/export</code>).</p>
 <h3 id="c--distribution-packaging--pypi">C — Distribution (packaging → PyPI)</h3>
-<p><code>pyproject.toml</code> already makes <code>pip install -e .</code> work. To enable clone-free install (<code>uvx content-creator-mcp</code>): publish to PyPI. Note the auto-start assumes <code>app.py</code> is a sibling of the installed module — verify this holds (or degrade gracefully to "start the app yourself") for a non-editable install.</p>
+<p><code>pyproject.toml</code> already makes <code>pip install -e .</code> work. To enable clone-free install (<code>uvx content-creator-mcp</code>): publish to PyPI.</p>
+<p><strong>✅ Auto-start hardened 2026-08-03.</strong> Auto-start assumed <code>app.py</code> sits beside the module (true for a clone and <code>pip install -e .</code>, false for a plain install). It now checks first via <code>_app_entrypoint()</code>: a non-editable install fails in 0.02s with “no app to start … start it yourself” instead of spawning a doomed child and waiting out the ~15s health timeout. Pinned by <code>tests/test_mcp_autostart.py</code>. <strong>Remaining in C: the PyPI publish itself</strong>, which needs the owner’s PyPI account + token.</p>
 <h3 id="d--remote-mcp-only-if-sharing-one-hosted-library">D — Remote MCP (only if sharing one hosted library)</h3>
 <p>The local proxy serves the "each user runs their own instance" model. Sharing one library with others means a hosted server behind a URL with auth (the claude.ai "add by link" model): deploy the app + MCP, add OAuth/token auth, scope access. Larger lift — hosting, auth, exposing footage. Not planned unless a hosted, multi-user product is wanted.</p>
 <h2 id="testing">Testing</h2>

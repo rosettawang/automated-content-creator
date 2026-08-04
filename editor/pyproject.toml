@@ -12,6 +12,8 @@ dependencies = [
     "pywebview",
     "openai-whisper",
     "anthropic",
+    # Kimi/Moonshot provider talks the OpenAI wire format (ai-provider-switch D4)
+    "openai",
     "pydantic",
     "gdown",
     "requests",

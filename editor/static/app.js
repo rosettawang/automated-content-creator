@@ -1010,7 +1010,20 @@ async function doExport() {
         if (job.error) throw new Error(job.error);
         const out = (job.results && job.results[0]) || {};
         el.textContent = out.output ? `Exported to ${out.output}` : "Exported.";
+        // Framing check (opt-in) found segments whose subject may be out of frame:
+        // surface it rather than letting a bad reframe ship silently.
+        if (out.misframed && out.misframed.length && window.showToast) {
+          showToast(out.warning || `${out.misframed.length} segment(s) may be misframed.`,
+                    { type: "warn", duration: 12000 });
+        } else if (out.warning && window.showToast) {
+          showToast(out.warning, { type: "warn" });
+        }
         break;
+      }
+      if (job.phase === "checking framing") {
+        el.textContent = "Checking framing…";
+        await new Promise((r) => setTimeout(r, 700));
+        continue;
       }
       const phase = job.phase === "stitching" ? "Joining clips" : "Encoding";
       const count = job.total ? ` (${job.done}/${job.total})` : "";

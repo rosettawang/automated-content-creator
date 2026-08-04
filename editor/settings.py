@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 
 from db import get_conn
-from config import ON_DEVICE_VISION_DEFAULT, REPO_ROOT
+from config import ON_DEVICE_VISION_DEFAULT, REPO_ROOT, AI_PROVIDER_DEFAULT
 
 
 def _get_setting(key: str, default: str | None = None) -> str | None:
@@ -38,6 +38,21 @@ def _use_on_device() -> bool:
     if val is None:
         return ON_DEVICE_VISION_DEFAULT
     return val == "1"
+
+
+def _ai_provider() -> str:
+    """Which cloud provider serves structured model calls: 'claude' or 'kimi'.
+    One global setting for all model calls (decision D5), mirroring the on-device
+    toggle; falls back to the AI_PROVIDER env default when unset."""
+    val = (_get_setting("ai_provider") or "").strip().lower()
+    return val if val in ("claude", "kimi") else AI_PROVIDER_DEFAULT
+
+
+def _use_export_frame_check() -> bool:
+    """Framing v2 Stage 5: verify each exported segment kept its subject in frame.
+    OFF by default — it's a recurring per-export vision cost (~1 call per segment),
+    and framing v2 has been accurate without it. Owner opts in via the settings gear."""
+    return _get_setting("export_frame_check") == "1"
 
 
 def _photos_albums() -> list[str]:

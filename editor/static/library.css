@@ -914,6 +914,27 @@ body {
 #analysis-mode-status.on { color: #9fbf9f; }
 #analysis-mode-status.off { color: #d8b070; }
 
+/* AI provider selector (spec: ai-provider-switch) — sits in the same bar. */
+#ai-provider-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+#ai-provider-select {
+  font-size: 0.82rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: 6px;
+  border: 1px solid #444;
+  background: #2a2a2a;
+  color: #eee;
+}
+#ai-provider-select:hover { border-color: #4a6a4a; }
+#ai-provider-status { font-size: 0.78rem; color: #999; }
+#ai-provider-status.on { color: #9fbf9f; }
+#ai-provider-status.off { color: #d8b070; }
+
 /* ---- people / faces ---- */
 #people-section {
   grid-column: 1 / -1;

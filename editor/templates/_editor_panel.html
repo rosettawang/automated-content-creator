@@ -86,6 +86,12 @@
             <button id="ref-audio-clear" type="button">Remove reference</button>
           </div>
         </div>
+        <label class="settings-row" title="After each reframed export, check with AI that the subject actually landed in frame">
+          <span class="settings-label">Check framing on export</span>
+          <input type="checkbox" id="frame-check-toggle">
+        </label>
+        <div class="settings-hint">Off by default — costs ~1 AI call per clip, per export.
+          When on, misframed segments are flagged on the finished export.</div>
         <div class="settings-row" title="Re-check every clip's file on disk; relink files that moved by content hash">
           <span class="settings-label">Media</span>
           <button id="verify-media-btn" type="button">Verify / relink</button>

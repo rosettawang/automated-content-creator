@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="spec-status" content="canonical" />
+<title>Content creator — spec run log</title>
+<link rel="stylesheet" href="spec.css" />
+</head>
+<body>
+<div class="internal">Internal — <b>the durable memory of a spec run</b></div>
+<div class="wrap">
+<p><a href="index.html">← Specs index</a></p>
+<h1>Spec run log</h1>
+<p class="lede">A long run outlives its own context — the conversation gets summarized while the run is still going. This file is where each spec's outcome is written <strong>as it finishes</strong>, so the end-of-run report is generated from disk, not from a faded memory. Append here; never batch at the end.</p>
+
+<div class="callout">
+<h4>What each entry records</h4>
+<p>What shipped · <strong>how it was verified</strong> (the command, the test, what you exercised — not the word "verified") · what was deviated from and why · what is left. Write it for someone who was not here.</p>
+</div>
+
+<h2>Runs</h2>
+<p class="meta">Newest run on top. A run is one <code>/spec-run</code> sitting; a row per spec inside it.</p>
+
+<!-- Template — copy for each spec worked, newest run at the top:
+
+<h3>2026-__-__ — &lt;run title&gt;</h3>
+<table>
+<tr><th>Spec</th><th>Outcome</th><th>Verified how</th><th>Deviations / left</th></tr>
+<tr>
+  <td>&lt;slug&gt;</td>
+  <td>shipped / blocked / decision-waiting</td>
+  <td>./run_tests.sh green (N tests); assembled → chat-revised → exported the real loop</td>
+  <td>&lt;what changed vs the spec, what remains&gt;</td>
+</tr>
+</table>
+-->
+
+<h3>2026-07-26 — run all specs until all blocked</h3>
+<table>
+<tr><th>Spec</th><th>Outcome</th><th>Verified how</th><th>Deviations / left</th></tr>
+<tr>
+  <td>social-publishing</td>
+  <td>not workable (umbrella index)</td>
+  <td>Read the file + checked its claims against the tree: <code>editor/social/</code> has
+      base/scheduler/analytics/instagram/tiktok, <code>blueprints/publishing.py</code>,
+      migration <code>004_social_core.sql</code>, and 3 test files exist — so the two
+      "shipped" children are real.</td>
+  <td>No build to do: it is a map whose only open child is <code>social-adapters</code>.
+      Left open with its existing accurate blocker; delete it when social-adapters ships.</td>
+</tr>
+<tr>
+  <td>social-adapters</td>
+  <td>blocked (chained) — no code work left</td>
+  <td>Ran the adapter/publishing tests: <code>pytest tests/test_social_tiktok.py
+      tests/test_social_instagram.py tests/test_publishing.py -q</code> → 23 passed.
+      Then checked the live registry rather than trusting the spec: with
+      <code>load_adapters()</code>, <code>real_adapter()</code> returns
+      <strong>InstagramAdapter</strong> and <strong>TikTokAdapter</strong>, but
+      <code>get_adapter()</code> returns <strong>DryRunAdapter</strong> for both while
+      <code>dry_run_enabled()</code> is True — so nothing can post for real.</td>
+  <td>Its decision ("which platform earns the second adapter?") is already answered in
+      code — the TikTok adapter exists and uses the <em>direct-upload</em> path, which is
+      the right call since a local app has no public URL for PULL_FROM_URL — so I removed
+      it from the owner's queue. Nothing else is buildable: Phase C's acceptance is a real
+      post on a real account, i.e. instagram-go-live's owner-gated blocker.</td>
+</tr>
+<tr>
+  <td>ai-provider-switch</td>
+  <td>built everything key-free → still open on the live Kimi check</td>
+  <td>The spec's own <code>spec-verify</code> now passes:
+      <code>pytest tests/test_ai_provider.py -q</code> → 10 passed (setting roundtrip +
+      400 on a bogus value, <code>_parse</code> routing to each provider, the
+      Anthropic→OpenAI text+image translation, the missing-key error, and the
+      batch→sync fallback). Full suite 126. Live, against the real API: the Claude
+      default still answers (<code>classify_thing_kind("pipevine")</code> → "plant"),
+      and selecting Kimi with no key raises the actionable
+      <code>RuntimeError</code> from raw <code>_parse</code> dispatch rather than
+      silently degrading; setting restored to claude.</td>
+  <td>Found the design already favorable — all 13 structured calls funnel through one
+      <code>_parse()</code>, so the switch is one dispatch point, not 13 edits.
+      Implemented all five decisions per their recommendations (kimi-k3, batch→sync on
+      Kimi, official openai SDK at Moonshot's base URL, one global toggle) and so
+      removed them from the owner's queue — EXCEPT the
+      <code>claude_client.py</code>→<code>ai_client.py</code> rename, deliberately
+      deferred to its own checkpoint commit and kept as a live decision so it isn't
+      lost. <strong>Left: the Kimi path is UNVERIFIED against the real API</strong> —
+      needs the owner's <code>MOONSHOT_API_KEY</code> (platform.kimi.ai), then one real
+      call each on description/assembly/chat.</td>
+</tr>
+<tr>
+  <td>instagram-go-live</td>
+  <td>blocked on the owner (account-gated) — nothing further buildable</td>
+  <td>Did not touch the live path. Re-verified at HEAD that the safety rails the blocker
+      depends on are intact: <code>social/base.py</code> defaults
+      <code>SOCIAL_DRY_RUN</code> ON (only an explicit <code>=0</code> enables real
+      posting) and real publish additionally requires per-campaign arming
+      (<code>publishing_armed</code>); <code>IG_USER_ID</code> is present in
+      <code>editor/.env</code>. Suite green (116).</td>
+  <td>Deliberately NOT done: arming, <code>SOCIAL_DRY_RUN=0</code>, and pressing publish
+      are the owner's — a public, irreversible act. Two things need the owner:
+      (1) <strong>which account</strong> — the connected Composio account is
+      <strong>@laurelate</strong> but the spec's decision says <strong>@whrfund</strong>;
+      (2) approval of the first post's still + caption. This one blocker gates the whole
+      chain below it (social-adapters Phase C → MCP phase A publishing tools → real
+      analytics).</td>
+</tr>
+<tr>
+  <td>mcp-server</td>
+  <td>partly shipped → still open (Phase A + PyPI publish blocked)</td>
+  <td>Reproduced the Phase-C gap the spec flagged, rather than trusting it: copied
+      <code>mcp_server.py</code> somewhere with no sibling <code>app.py</code> (a
+      site-packages stand-in) and watched <code>_start_app()</code> spawn a doomed child
+      and burn <strong>15.5s</strong> before a misleading "couldn't start it
+      automatically". After the fix: <strong>0.02s</strong> with a message naming the
+      real cause. Confirmed the repo path still resolves <code>app.py</code> and no-ops
+      when the app is already up. <code>./run_tests.sh</code> green (116) incl. new
+      <code>tests/test_mcp_autostart.py</code>.</td>
+  <td>Built only C's engineering half — the PyPI publish needs the owner's account/token.
+      Phase A (multi-account posting, <code>publish_edit</code>/<code>schedule_post</code>)
+      deliberately NOT built: it waits on social-adapters Phase C being live-verified,
+      since real posting is irreversible. Phase D (hosted/remote MCP) is out of scope by
+      the spec's own terms. Also cleared this spec's stale <code>spec-decision</code>
+      (edits→cuts) — that question is now settled in <code>CLAUDE.md</code> as a frozen
+      boundary, so it no longer belongs in the owner's queue.</td>
+</tr>
+<tr>
+  <td>framing-and-provenance</td>
+  <td>shipped (Stage 5 built → spec complete)</td>
+  <td><code>./run_tests.sh</code> green (114 tests, incl. new
+      <code>tests/test_frame_check.py</code> proving zero vision calls while disabled).
+      Then exercised the REAL export path in-process twice: gate off → 1080×1920 file
+      rendered, no <code>misframed</code> key, no API calls; gate on → a real export
+      correctly flagged <em>"roasted nuts jar (cut off at the top edge)"</em> with a
+      user-facing warning. Gate restored to off afterwards.</td>
+  <td>Built to the decision's recommendation (default OFF) rather than leaving Stage 5
+      unbuilt — enabling it is now a one-click owner choice with no standing cost.
+      Deviation: skipped the spec's "one-click widen &amp; re-export segment N" retry —
+      misframed segments are reported (segment index, subject, reason) but the fix is
+      manual (drag the crop, re-export). Nothing else left.</td>
+</tr>
+</table>
+
+</div>
+</body>
+</html>

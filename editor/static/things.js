@@ -30,8 +30,49 @@ async function loadAnalysisMode() {
     const box = document.getElementById("on-device-toggle");
     box.checked = !!s.on_device_vision;
     renderAnalysisStatus(box.checked);
+    renderAiProvider(s);
   } catch { /* leave as-is */ }
 }
+
+// ---- AI provider: one global switch for every cloud model call ----
+function renderAiProvider(s) {
+  const sel = document.getElementById("ai-provider-select");
+  const status = document.getElementById("ai-provider-status");
+  if (!sel) return;
+  sel.value = s.ai_provider || "claude";
+  if (!status) return;
+  if (sel.value === "kimi") {
+    status.textContent = s.kimi_key_present
+      ? `${s.kimi_model || "kimi"} · cheaper per call`
+      : "⚠ no MOONSHOT_API_KEY — add one to editor/.env or switch back to Claude";
+    status.className = s.kimi_key_present ? "hint-inline on" : "hint-inline off";
+  } else {
+    status.textContent = "Anthropic · default";
+    status.className = "hint-inline";
+  }
+}
+
+(function () {
+  const sel = document.getElementById("ai-provider-select");
+  if (!sel) return;
+  sel.addEventListener("change", async () => {
+    const want = sel.value;
+    try {
+      const s = await api("/api/settings", {
+        method: "POST", body: JSON.stringify({ ai_provider: want }),
+      });
+      renderAiProvider(s);
+      if (window.showToast) {
+        showToast(s.ai_provider === "kimi" && !s.kimi_key_present
+          ? "Switched to Kimi, but MOONSHOT_API_KEY isn't set — calls will fail until you add it."
+          : `AI model: ${s.ai_provider === "kimi" ? (s.kimi_model || "Kimi") : "Claude"}.`,
+          { type: s.ai_provider === "kimi" && !s.kimi_key_present ? "warn" : "info" });
+      }
+    } catch (err) {
+      loadAnalysisMode();   // resync from the server on failure
+    }
+  });
+})();
 
 function renderAnalysisStatus(onDevice) {
   const el = document.getElementById("analysis-mode-status");
