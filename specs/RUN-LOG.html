@@ -50,6 +50,25 @@
       Left open with its existing accurate blocker; delete it when social-adapters ships.</td>
 </tr>
 <tr>
+  <td>mcp-server</td>
+  <td>partly shipped → still open (Phase A + PyPI publish blocked)</td>
+  <td>Reproduced the Phase-C gap the spec flagged, rather than trusting it: copied
+      <code>mcp_server.py</code> somewhere with no sibling <code>app.py</code> (a
+      site-packages stand-in) and watched <code>_start_app()</code> spawn a doomed child
+      and burn <strong>15.5s</strong> before a misleading "couldn't start it
+      automatically". After the fix: <strong>0.02s</strong> with a message naming the
+      real cause. Confirmed the repo path still resolves <code>app.py</code> and no-ops
+      when the app is already up. <code>./run_tests.sh</code> green (116) incl. new
+      <code>tests/test_mcp_autostart.py</code>.</td>
+  <td>Built only C's engineering half — the PyPI publish needs the owner's account/token.
+      Phase A (multi-account posting, <code>publish_edit</code>/<code>schedule_post</code>)
+      deliberately NOT built: it waits on social-adapters Phase C being live-verified,
+      since real posting is irreversible. Phase D (hosted/remote MCP) is out of scope by
+      the spec's own terms. Also cleared this spec's stale <code>spec-decision</code>
+      (edits→cuts) — that question is now settled in <code>CLAUDE.md</code> as a frozen
+      boundary, so it no longer belongs in the owner's queue.</td>
+</tr>
+<tr>
   <td>framing-and-provenance</td>
   <td>shipped (Stage 5 built → spec complete)</td>
   <td><code>./run_tests.sh</code> green (114 tests, incl. new
