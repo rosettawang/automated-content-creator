@@ -50,6 +50,29 @@
       Left open with its existing accurate blocker; delete it when social-adapters ships.</td>
 </tr>
 <tr>
+  <td>ai-provider-switch</td>
+  <td>built everything key-free → still open on the live Kimi check</td>
+  <td>The spec's own <code>spec-verify</code> now passes:
+      <code>pytest tests/test_ai_provider.py -q</code> → 10 passed (setting roundtrip +
+      400 on a bogus value, <code>_parse</code> routing to each provider, the
+      Anthropic→OpenAI text+image translation, the missing-key error, and the
+      batch→sync fallback). Full suite 126. Live, against the real API: the Claude
+      default still answers (<code>classify_thing_kind("pipevine")</code> → "plant"),
+      and selecting Kimi with no key raises the actionable
+      <code>RuntimeError</code> from raw <code>_parse</code> dispatch rather than
+      silently degrading; setting restored to claude.</td>
+  <td>Found the design already favorable — all 13 structured calls funnel through one
+      <code>_parse()</code>, so the switch is one dispatch point, not 13 edits.
+      Implemented all five decisions per their recommendations (kimi-k3, batch→sync on
+      Kimi, official openai SDK at Moonshot's base URL, one global toggle) and so
+      removed them from the owner's queue — EXCEPT the
+      <code>claude_client.py</code>→<code>ai_client.py</code> rename, deliberately
+      deferred to its own checkpoint commit and kept as a live decision so it isn't
+      lost. <strong>Left: the Kimi path is UNVERIFIED against the real API</strong> —
+      needs the owner's <code>MOONSHOT_API_KEY</code> (platform.kimi.ai), then one real
+      call each on description/assembly/chat.</td>
+</tr>
+<tr>
   <td>instagram-go-live</td>
   <td>blocked on the owner (account-gated) — nothing further buildable</td>
   <td>Did not touch the live path. Re-verified at HEAD that the safety rails the blocker
