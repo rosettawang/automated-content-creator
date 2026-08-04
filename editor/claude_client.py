@@ -19,9 +19,16 @@ def get_client() -> Anthropic:
 
 
 def _parse(messages, schema, max_tokens, *, system=None, thinking=None, model=MODEL):
-    """One structured messages.parse → the parsed object. Centralizes the
-    get_client().messages.parse(...) scaffold repeated across this module; per-call
-    system prompt / thinking / model overrides pass through when given."""
+    """One structured call → the parsed pydantic object. THE dispatch point for every
+    structured model call in this module (13 call sites), so switching providers is a
+    single decision here rather than per feature (spec: ai-provider-switch).
+
+    Routes to Anthropic (default) or Moonshot's Kimi, per the runtime `ai_provider`
+    setting. `model` overrides only apply to the Claude path — Kimi uses KIMI_MODEL,
+    since Claude model ids are meaningless there."""
+    from settings import _ai_provider   # local: settings imports config, not this module
+    if _ai_provider() == "kimi":
+        return _parse_kimi(messages, schema, max_tokens, system=system)
     extra = {}
     if system is not None:
         extra["system"] = system
@@ -31,6 +38,82 @@ def _parse(messages, schema, max_tokens, *, system=None, thinking=None, model=MO
         model=model, max_tokens=max_tokens, messages=messages,
         output_format=schema, **extra,
     ).parsed_output
+
+
+def _anthropic_to_openai_messages(messages, system=None) -> list[dict]:
+    """Translate this module's Anthropic-shaped messages to OpenAI chat format.
+
+    Handles the two content shapes we actually build: a plain string, or a list of
+    {"type": "text"} / {"type": "image", "source": {base64…}} blocks. Anthropic's
+    base64 image block becomes an OpenAI `image_url` with a data: URI."""
+    out: list[dict] = []
+    if system:
+        out.append({"role": "system", "content": system})
+    for m in messages:
+        content = m.get("content")
+        if isinstance(content, str):
+            out.append({"role": m["role"], "content": content})
+            continue
+        parts = []
+        for block in content or []:
+            btype = block.get("type")
+            if btype == "text":
+                parts.append({"type": "text", "text": block.get("text", "")})
+            elif btype == "image":
+                src = block.get("source") or {}
+                if src.get("type") == "base64":
+                    mt = src.get("media_type", "image/jpeg")
+                    parts.append({"type": "image_url",
+                                  "image_url": {"url": f"data:{mt};base64,{src.get('data','')}"}})
+        out.append({"role": m["role"], "content": parts})
+    return out
+
+
+_kimi_client = None
+
+
+def _get_kimi_client():
+    """Lazy OpenAI-SDK client pointed at Moonshot (decision D4). Raises a clear,
+    actionable error when the key is missing — the spec's account-gated blocker."""
+    global _kimi_client
+    if _kimi_client is None:
+        from config import MOONSHOT_BASE_URL
+        import os
+        key = (os.environ.get("MOONSHOT_API_KEY") or "").strip()
+        if not key:
+            raise RuntimeError(
+                "AI provider is set to Kimi but MOONSHOT_API_KEY is not set. Create a key "
+                "at platform.kimi.ai and add MOONSHOT_API_KEY=... to editor/.env, or switch "
+                "the provider back to Claude in the Things panel."
+            )
+        try:
+            from openai import OpenAI
+        except ImportError as e:   # dependency added by this spec
+            raise RuntimeError(
+                "The Kimi provider needs the `openai` package: "
+                "editor/venv/bin/python -m pip install openai"
+            ) from e
+        _kimi_client = OpenAI(api_key=key, base_url=MOONSHOT_BASE_URL)
+    return _kimi_client
+
+
+def _parse_kimi(messages, schema, max_tokens, *, system=None):
+    """Structured call against Moonshot's Kimi via the OpenAI wire format, using a
+    strict JSON schema so the reply parses into `schema` exactly like the Anthropic
+    path. Returns the same pydantic object the callers already expect."""
+    from config import KIMI_MODEL
+    client = _get_kimi_client()
+    resp = client.chat.completions.create(
+        model=KIMI_MODEL,
+        max_tokens=max_tokens,
+        messages=_anthropic_to_openai_messages(messages, system),
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": schema.__name__, "strict": True,
+                            "schema": schema.model_json_schema()},
+        },
+    )
+    return schema.model_validate_json(resp.choices[0].message.content)
 
 
 class ClipSelection(BaseModel):

@@ -39,8 +39,14 @@ def import_job(job_id):
 
 
 def _settings_payload():
+    from config import MOONSHOT_API_KEY, KIMI_MODEL
+    import os
     return {"on_device_vision": _use_on_device(),
-            "export_frame_check": _use_export_frame_check()}
+            "export_frame_check": _use_export_frame_check(),
+            "ai_provider": _ai_provider(),
+            # So the UI can warn before the switch fails at call time.
+            "kimi_key_present": bool((os.environ.get("MOONSHOT_API_KEY") or MOONSHOT_API_KEY or "").strip()),
+            "kimi_model": KIMI_MODEL}
 
 
 @bp.get("/api/settings")
@@ -56,6 +62,12 @@ def update_settings():
     # Framing v2 Stage 5: opt-in, since each export then costs ~1 vision call/segment.
     if "export_frame_check" in data:
         _set_setting("export_frame_check", "1" if data["export_frame_check"] else "0")
+    # AI provider: one global switch for every structured model call.
+    if "ai_provider" in data:
+        want = str(data.get("ai_provider") or "").strip().lower()
+        if want not in ("claude", "kimi"):
+            return {"error": "ai_provider must be 'claude' or 'kimi'"}, 400
+        _set_setting("ai_provider", want)
     return jsonify(_settings_payload())
 
 

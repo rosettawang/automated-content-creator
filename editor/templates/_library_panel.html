@@ -170,6 +170,16 @@
         <span>Analyze on-device <span class="hint-inline">(free — CLIP/Whisper/X-CLIP; turn off to use Claude for richer captions)</span></span>
       </label>
       <span id="analysis-mode-status"></span>
+      <!-- AI provider (spec: ai-provider-switch): one global switch for every cloud
+           model call. Kimi is far cheaper; Claude is the default. -->
+      <label id="ai-provider-row" title="Which cloud model serves AI calls (descriptions, assembly, chat). One global setting.">
+        <span>AI model</span>
+        <select id="ai-provider-select">
+          <option value="claude">Claude (Anthropic)</option>
+          <option value="kimi">Kimi (Moonshot — cheaper)</option>
+        </select>
+        <span id="ai-provider-status" class="hint-inline"></span>
+      </label>
     </div>
 
     <section id="people-section">

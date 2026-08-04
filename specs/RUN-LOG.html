@@ -50,6 +50,23 @@
       Left open with its existing accurate blocker; delete it when social-adapters ships.</td>
 </tr>
 <tr>
+  <td>instagram-go-live</td>
+  <td>blocked on the owner (account-gated) — nothing further buildable</td>
+  <td>Did not touch the live path. Re-verified at HEAD that the safety rails the blocker
+      depends on are intact: <code>social/base.py</code> defaults
+      <code>SOCIAL_DRY_RUN</code> ON (only an explicit <code>=0</code> enables real
+      posting) and real publish additionally requires per-campaign arming
+      (<code>publishing_armed</code>); <code>IG_USER_ID</code> is present in
+      <code>editor/.env</code>. Suite green (116).</td>
+  <td>Deliberately NOT done: arming, <code>SOCIAL_DRY_RUN=0</code>, and pressing publish
+      are the owner's — a public, irreversible act. Two things need the owner:
+      (1) <strong>which account</strong> — the connected Composio account is
+      <strong>@laurelate</strong> but the spec's decision says <strong>@whrfund</strong>;
+      (2) approval of the first post's still + caption. This one blocker gates the whole
+      chain below it (social-adapters Phase C → MCP phase A publishing tools → real
+      analytics).</td>
+</tr>
+<tr>
   <td>mcp-server</td>
   <td>partly shipped → still open (Phase A + PyPI publish blocked)</td>
   <td>Reproduced the Phase-C gap the spec flagged, rather than trusting it: copied

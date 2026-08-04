@@ -18,6 +18,20 @@ MEDIA_DIR = Path(MEDIA_DIR_RAW).expanduser() if MEDIA_DIR_RAW else None
 
 ON_DEVICE_VISION_DEFAULT = os.environ.get("ON_DEVICE_VISION", "1") != "0"
 
+# ---- AI provider (spec: ai-provider-switch) --------------------------------
+# Which cloud model provider serves structured calls. 'claude' (Anthropic) or
+# 'kimi' (Moonshot, OpenAI-wire-compatible). Runtime-switchable in the Things
+# panel; this is only the default when the setting is unset.
+AI_PROVIDER_DEFAULT = (os.environ.get("AI_PROVIDER", "claude").strip().lower()
+                       or "claude")
+# Decision D1: kimi-k3 is the recommended default (1M context, vision, strict
+# JSON-schema structured outputs); kimi-k2.6 is the cheaper 256K fallback.
+KIMI_MODEL = os.environ.get("KIMI_MODEL", "kimi-k3").strip() or "kimi-k3"
+# Decision D4: use the official openai SDK pointed at Moonshot's base URL.
+MOONSHOT_BASE_URL = (os.environ.get("MOONSHOT_BASE_URL", "https://api.moonshot.ai/v1").strip()
+                     or "https://api.moonshot.ai/v1")
+MOONSHOT_API_KEY = os.environ.get("MOONSHOT_API_KEY", "").strip()
+
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".gif", ".tiff", ".webp"}
 MEDIA_EXTS = VIDEO_EXTS | IMAGE_EXTS
@@ -43,6 +57,7 @@ def classify_kind(path: Path) -> str:
 
 __all__ = [
     "MEDIA_DIR_RAW", "MEDIA_DIR", "ON_DEVICE_VISION_DEFAULT",
+    "AI_PROVIDER_DEFAULT", "KIMI_MODEL", "MOONSHOT_BASE_URL", "MOONSHOT_API_KEY",
     "VIDEO_EXTS", "IMAGE_EXTS", "MEDIA_EXTS", "classify_kind",
     "REPO_ROOT", "CLIPS_OUT", "REFERENCE_FRAMES", "THUMB_CACHE",
     "FACES_DIR", "PROXY_CACHE", "REF_AUDIO_DIR", "MUSIC_DIR",

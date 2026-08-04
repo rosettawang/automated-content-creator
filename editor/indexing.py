@@ -899,8 +899,19 @@ def _transcript_segs(conn, clip_id: int) -> list[dict]:
 
 def _run_deep_index_batch_job(job_id: str, clip_ids: list[int]) -> None:
     """Deep-index via the Message Batches API: prepare all requests locally (free),
-    submit ONE batch (50% price), poll until it ends, then store every result."""
+    submit ONE batch (50% price), poll until it ends, then store every result.
+
+    Batch is an Anthropic-only feature — Moonshot documents no equivalent — so when the
+    provider is Kimi this transparently runs the synchronous loop instead, with the job
+    label saying so rather than silently charging full price under a "50%" label
+    (spec: ai-provider-switch, decision D2)."""
     from claude_client import get_client, deep_index_batch_request, parse_deep_index_json
+    from settings import _ai_provider
+
+    if _ai_provider() != "claude":
+        _update_job(job_id, phase="indexing (no batch API on this provider — running "
+                                  "one at a time)")
+        return _run_deep_index_job(job_id, clip_ids)
 
     conn = get_conn()
     todo = _deep_index_todo(conn, clip_ids)
